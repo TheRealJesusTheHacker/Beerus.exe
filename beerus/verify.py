@@ -281,6 +281,19 @@ class FileSurfaceReader:
                 "The target is not a regular file. The file-backed "
                 "reader only ever reads regular files."
             )
+        # Explicit link refusal, as in FileExecutor: Windows
+        # has no O_NOFOLLOW and os.stat follows links.
+        try:
+            lst = os.lstat(path)
+        except OSError:
+            raise UnsafeTargetError(
+                "The target file could not be checked. Nothing was read."
+            ) from None
+        if stat.S_ISLNK(lst.st_mode):
+            raise UnsafeTargetError(
+                "The target is a link. The file-backed reader "
+                "never follows links — nothing was read."
+            )
         try:
             fd = os.open(
                 path,
