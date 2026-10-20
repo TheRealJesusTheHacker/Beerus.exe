@@ -42,7 +42,40 @@ not a later coat of paint.
   actual scope; progress and errors are reported in plain
   language while the wipe runs.
 
-**Status: PLANNED.**
+**Status: COMPLETE — shipped in v0.2.0 (2026-10-20).**
+
+As built: `beerus/inventory.py` enumerates drives from `lsblk`
+(model, serial, size, interface, WWN) and marks the boot device
+from the mount tree; a drive whose model or serial is missing or
+a firmware placeholder is unidentifiable, and unidentifiable
+drives are refused at every layer. `beerus/methods.py` selects
+per NIST 800-88 — NVMe Sanitize and ATA Secure Erase (Purge),
+four-pass overwrite for spinning disks (Clear); USB-attached and
+unclassifiable drives get a plain-language refusal in this
+version. `beerus/gates.py` is the consent framework: typed-serial
+identity confirmation, full scope acknowledgment, and an exact
+`ERASE <serial>` final phrase, minting a single-use, expiring,
+HMAC-bound confirmation token. `beerus/engine.py` re-enumerates
+and re-verifies the target's identity (model, serial, size,
+interface, WWN — deliberately *not* the device path, so
+re-lettering changes nothing) before the token is consumed; the
+executor is unreachable before every check passes.
+`beerus/executor.py` is the single destructive seam: a
+file-backed executor that only ever writes to regular files, and
+the real-drive executor, which ships **disarmed** (constructor
+flag *and* environment variable, checked before anything runs)
+until the boot-image entry point arms it in a later phase. The
+suite is 188 tests, all against synthetic targets — no test can
+touch a real drive. An independent audit of the safety
+invariants (findings F1–F12) was fixed and re-audited clean.
+
+Honest residuals, by design: identity rests on what the drive
+reports — two drives reporting identical model, serial, size,
+and WWN are indistinguishable to any software; boot detection in
+this phase reads the mount tree (an unmounted boot partition is
+invisible to it), and Phase 3's image-level self-protection is
+the second, independent layer for exactly that case.
+Sacrificial-drive validation on real hardware remains Phase 5.
 
 ## Phase 2 — Verification + certificate of destruction
 
