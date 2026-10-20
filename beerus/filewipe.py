@@ -883,7 +883,7 @@ class FileWipeEngine:
         )
 
     def _open_write(self, path: str) -> int:
-        flags = os.O_WRONLY
+        flags = os.O_WRONLY | getattr(os, "O_BINARY", 0)
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         if self._open_seam is not None:
@@ -1080,7 +1080,7 @@ class FileWipeEngine:
             expected = b"\xff"
         else:  # pragma: no cover — plan patterns are closed
             expected = None
-        flags = os.O_RDONLY
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         try:
@@ -1112,7 +1112,9 @@ class FileWipeEngine:
         )
         try:
             os.rename(path, new_path)
-            fd = os.open(new_path, os.O_WRONLY)
+            fd = os.open(
+                new_path, os.O_WRONLY | getattr(os, "O_BINARY", 0)
+            )
             try:
                 os.ftruncate(fd, 0)
                 os.fsync(fd)
@@ -1425,7 +1427,11 @@ class FreeSpaceEngine:
                 )
                 try:
                     fd = os.open(
-                        filler, os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                        filler,
+                        os.O_WRONLY
+                        | os.O_CREAT
+                        | os.O_EXCL
+                        | getattr(os, "O_BINARY", 0),
                     )
                 except FileExistsError:
                     # The folder was verified empty at the start
@@ -1488,7 +1494,9 @@ class FreeSpaceEngine:
         # Rewrite passes: same fillers, same sizes, new pattern.
         for filler in fillers:
             size = os.path.getsize(filler)
-            fd = os.open(filler, os.O_WRONLY)
+            fd = os.open(
+                filler, os.O_WRONLY | getattr(os, "O_BINARY", 0)
+            )
             try:
                 done = 0
                 while done < size:
@@ -1527,7 +1535,9 @@ class FreeSpaceEngine:
         for filler in fillers:
             try:
                 size = os.path.getsize(filler)
-                fd = os.open(filler, os.O_RDONLY)
+                fd = os.open(
+                    filler, os.O_RDONLY | getattr(os, "O_BINARY", 0)
+                )
             except OSError:
                 return None
             try:
