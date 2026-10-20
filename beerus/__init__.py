@@ -14,8 +14,23 @@ wiping for the portable app edition (``beerus_portable``) — the
 same rule at file level: the selected data is overwritten and
 read back before its entry is removed, never merely unlinked,
 under the same consent discipline, with signed wipe reports.
+
+Phase 3 adds the bootable image definition (``image/`` in this
+repository) and its two in-package pieces: ``beerus.bootmedium``,
+the image-level boot protection that marks the Destruct Key Pro
+by its baked-in volume label even when its partitions are not
+mounted, backing the mount-tree exclusion with a second,
+independent layer; and ``beerus.live``, the boot console the
+image starts — the only place the real-drive executor is armed,
+and only after the image's build-time marker has been verified.
 """
 
+from .bootmedium import (
+    IMAGE_MARKER_PATH,
+    LIVE_VOLUME_LABEL,
+    load_image_marker,
+    marker_documents_dir,
+)
 from .certificate import (
     IssuedDocument,
     JobRecord,
@@ -54,6 +69,7 @@ from .gates import (
     scope_hash_for,
 )
 from .inventory import Drive, DriveClass, enumerate_drives, find_drive, parse_lsblk_json
+from .live import build_live_engine, main as live_main, run_console
 from .methods import MethodKind, PassSpec, WipePlan, WipeStep, select_plan
 from .progress import EventKind, ProgressEvent
 from .verify import (
@@ -68,7 +84,7 @@ from .verify import (
     verify_result_authentic,
 )
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "BeerusError",
@@ -89,9 +105,11 @@ __all__ = [
     "GateError",
     "GateSession",
     "GateStage",
+    "IMAGE_MARKER_PATH",
     "IdentityMismatchError",
     "IssuedDocument",
     "JobRecord",
+    "LIVE_VOLUME_LABEL",
     "MethodKind",
     "MethodUnavailableError",
     "PassSpec",
@@ -115,14 +133,19 @@ __all__ = [
     "WipeVerifier",
     "assess_target",
     "build_job_record",
+    "build_live_engine",
     "build_scope_text",
     "check_nvme_firmware_status",
     "enumerate_drives",
     "find_drive",
     "issue_document",
+    "live_main",
+    "load_image_marker",
+    "marker_documents_dir",
     "parse_lsblk_json",
     "render_certificate_html",
     "render_failure_report_html",
+    "run_console",
     "scope_hash_for",
     "select_plan",
     "unverified_result",

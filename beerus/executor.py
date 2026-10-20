@@ -279,10 +279,17 @@ class RealExecutor:
                         drive.size_bytes,
                     )
                 )
-                fd = os.open(
-                    drive.device_path,
-                    os.O_WRONLY | getattr(os, "O_BINARY", 0),
-                )
+                try:
+                    fd = os.open(
+                        drive.device_path,
+                        os.O_WRONLY | getattr(os, "O_BINARY", 0),
+                    )
+                except OSError as e:
+                    raise WipeFailedError(
+                        "The drive could not be opened for wiping. "
+                        "The wipe did NOT finish.",
+                        detail=f"open failed with errno {e.errno}",
+                    ) from None
                 try:
                     written = run_overwrite(
                         fd, drive.size_bytes, plan.passes, emit, step.label
