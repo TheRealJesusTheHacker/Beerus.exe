@@ -142,6 +142,67 @@ read-only and trusts the drive path exactly as the executor
 does; hardware truth for all of this is Phase 5's
 sacrificial-drive validation.
 
+## Phase 2.5 — Beerus Portable: the app edition + file modes
+
+Owner direction (2026-10-20): Beerus has TWO forms. The live
+USB stays; alongside it, a portable app edition runs the same
+engine on an already-booted Windows machine, and the tool wipes
+files, folders, and free space as well as whole drives.
+
+**As built (v0.4.0):**
+
+- **`beerus_portable` — the app.** A PySide6 window over the
+  existing engine: no forked wipe logic, no second gate. The
+  Windows inventory seam (`beerus_portable.windows_inventory`)
+  reads drives through read-only PowerShell queries and
+  translates them into the engine's own `Drive` records.
+- **Live-system refusal rules.** The drive Windows runs from and
+  the drive the app itself runs from are marked `is_boot`, so
+  the engine's and gates' boot-device refusals protect them at
+  every layer; the app adds the plainer portable wording in
+  front. Unidentifiable drives are refused by the engine's own
+  rule, unchanged.
+- **Three target modes.** Whole drive (the full drive flow,
+  certificates included); files & folders; free space. The
+  gate pages are shared: scope statement → acknowledgment →
+  exact typed phrase → execution — with drive mode's
+  typed-serial step in front where a drive is the target.
+- **`beerus.filewipe` — the file-level engine.** Scope is built
+  before consent (folders walked at build time; count and
+  bytes announced; links recorded, never followed; protected
+  OS locations refused plainly). Execution overwrites each
+  file in full — the engine's own overwrite routine and pass
+  plan — flushes, reads back and verifies BEFORE the entry is
+  removed, then removes the blanked entry last
+  (rename-to-random + truncate + delete). Failures are
+  per-item with reasons; locked files are reported, never
+  forced. Free-space mode fills a volume's free space across
+  the same pass plan and samples the filler back.
+- **Consent + documents for file modes.** An HMAC-bound gate
+  authority mirrors the drive gates (scope-hash binding,
+  exact phrase naming the count, single-use expiring tokens).
+  Runs issue a signed wipe REPORT — the certificate module's
+  anti-forgery posture, plainly not a certificate of
+  destruction, which stays reserved for whole-drive work.
+- **Honesty, on screen and in the report.** The SSD
+  wear-leveling/TRIM disclosure and the other-copies
+  disclosure (shadow copies, temp files, thumbnails,
+  journals) are designed text at mode selection, in the scope
+  statement, and in the report — pinned by tests.
+- **Packaging + release.** One-folder PyInstaller build
+  (`packaging/Beerus.spec`), tag-gated Windows workflow: full
+  suite offscreen, staged-app launch smoke test,
+  `BeerusPortable.zip` + `SHA256SUMS.txt`. The shipped
+  whole-drive executor stays disarmed by both factors; the
+  file engines write only what their consent tokens
+  authorize.
+- The boot line gains this engine capability too: when the
+  Phase 4 boot UI is built, file/folder and free-space modes
+  are available to it from `beerus.filewipe` — no second
+  implementation.
+
+**Status: COMPLETE (v0.4.0).**
+
 ## Phase 3 — Bootable image definition
 
 - **Debian live-system definition, versioned in this repo:** the
@@ -168,6 +229,10 @@ sacrificial-drive validation.
   fine print — every control functional, no decorative buttons.
 - Plain language throughout; every failure state a designed
   screen with one clear next action.
+- The portable app (Phase 2.5) is the first shipped UI over
+  this engine; the boot UI reuses its gate presentation and
+  gains the file/folder and free-space modes from
+  `beerus.filewipe`.
 
 **Status: PLANNED.**
 
