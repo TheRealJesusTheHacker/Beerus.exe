@@ -9,11 +9,14 @@ already switched on, from a folder or a USB stick, with nothing to
 install.
 
 This package is a thin shell over the ``beerus`` engine package.
-It contains no wipe logic of its own and no second copy of the
-gates: every destruction goes through ``beerus.engine.WipeEngine``
-behind a token minted by ``beerus.gates.GateAuthority``, exactly
-as on the boot key. What lives here is only what the portable
-form needs and the boot form does not:
+It contains no wipe logic of its own. Whole-drive destruction
+goes through ``beerus.engine.WipeEngine`` behind a token minted
+by ``beerus.gates.GateAuthority``, exactly as on the boot key;
+file, folder, and free-space destruction goes through the
+engines in ``beerus.filewipe`` behind tokens minted by that
+module's ``FileGateAuthority`` — the same consent discipline,
+bound to the exact scope, in both cases. What lives here is
+only what the portable form needs and the boot form does not:
 
 - a Windows drive inventory (PowerShell, read-only) that feeds
   the engine the same ``Drive`` records the boot form gets from
