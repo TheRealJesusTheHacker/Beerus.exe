@@ -305,7 +305,7 @@ def test_files_mode_full_flow(qapp, tmp_path, documents_dir):
     wait_for_page(window, window.page_result)
     assert not target.exists()
     assert window.verdict_label.text() == "FILE WIPE COMPLETE"
-    reports = list(documents_dir.glob("beerus-file-wipe-report-*.html"))
+    reports = list((documents_dir / "reports").glob("beerus-file-wipe-report-*.html"))
     assert len(reports) == 1
     html = reports[0].read_text(encoding="utf-8")
     assert "File Wipe Report" in html
@@ -372,8 +372,36 @@ def test_files_mode_locked_file_reported_in_result(
     assert "FAILED" in window.verification_view.toPlainText()
     assert "locked" in window.verification_view.toPlainText()
     assert target.read_bytes() == b"in use" * 40
-    reports = list(documents_dir.glob("beerus-file-wipe-report-*.html"))
+    reports = list((documents_dir / "reports").glob("beerus-file-wipe-report-*.html"))
     assert len(reports) == 1
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink semantics differ")
+def test_files_mode_link_run_verdict_is_complete(
+    qapp, tmp_path, documents_dir
+):
+    # A run whose only "skip-shaped" outcomes are links removed
+    # exactly as designed is a COMPLETE run, not a partial one.
+    import os as _os
+
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"untouchable" * 20)
+    folder = tmp_path / "pick"
+    folder.mkdir()
+    (folder / "real.txt").write_bytes(b"data" * 50)
+    _os.symlink(outside, folder / "link.txt")
+    window = files_window(documents_dir)
+    window.operator_edit.setText("Skyler Test")
+    window.mode_files_radio.setChecked(True)
+    window._add_path(str(folder))
+    window.start_files_button.click()
+    walk_file_gates(window, "ERASE 1 FILE")
+    wait_for_page(window, window.page_result)
+    assert window.verdict_label.text() == "FILE WIPE COMPLETE"
+    assert "Links removed (targets not touched): 1" in (
+        window.verification_view.toPlainText()
+    )
+    assert outside.read_bytes() == b"untouchable" * 20
 
 
 # ---------------------------------------------------------------------
@@ -414,5 +442,5 @@ def test_free_space_mode_full_flow(qapp, tmp_path, documents_dir, monkeypatch):
     assert window.verdict_label.text() == "FREE-SPACE WIPE COMPLETE"
     assert live.read_bytes() == b"important live data" * 100
     assert not (tmp_path / "Beerus free-space wipe").exists()
-    reports = list(documents_dir.glob("beerus-free-space-report-*.html"))
+    reports = list((documents_dir / "reports").glob("beerus-free-space-report-*.html"))
     assert len(reports) == 1
