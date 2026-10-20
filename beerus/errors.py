@@ -83,3 +83,20 @@ class WipeFailedError(BeerusError):
 
     def __str__(self) -> str:
         return self.user_message
+
+
+class CertificateError(BeerusError):
+    """Beerus refused to issue a document.
+
+    Raised when the records behind a certificate or failure report
+    are inconsistent, tampered with, or incomplete — Beerus will not
+    put its name on a document the records do not support.
+    """
+
+    def __init__(self, user_message: str, *, detail: str = "") -> None:
+        super().__init__(user_message)
+        self.user_message = user_message
+        self.detail = detail
+
+    def __str__(self) -> str:
+        return self.user_message
