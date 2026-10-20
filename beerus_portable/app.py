@@ -181,17 +181,21 @@ class MainWindow(QMainWindow):
         # a token minted for a scope is verified by the engine
         # that runs it. Injectable for tests (a locked-file seam
         # rides in on the engine, exactly as in production code).
-        self._file_authority = file_authority or FileGateAuthority()
-        self._file_engine = file_engine or FileWipeEngine(
-            self._file_authority
-        )
-        self._free_space_engine = free_space_engine or FreeSpaceEngine(
-            self._file_authority
-        )
+        # The protected roots are settled first: the engine's
+        # execution-time re-check uses the same list the scope
+        # was built with.
         self._protected_roots = (
             tuple(protected_roots)
             if protected_roots is not None
             else filewipe.default_protected_roots()
+        )
+        self._file_authority = file_authority or FileGateAuthority()
+        self._file_engine = file_engine or FileWipeEngine(
+            self._file_authority,
+            protected_roots=self._protected_roots,
+        )
+        self._free_space_engine = free_space_engine or FreeSpaceEngine(
+            self._file_authority
         )
 
         self._drive = None
@@ -742,7 +746,9 @@ class MainWindow(QMainWindow):
         self._files_ssd = self._ssd_for_paths(
             [entry.path for entry in scope.entries]
         )
-        self._file_session = self._file_authority.begin_session(scope)
+        self._file_session = self._file_authority.begin_session(
+            scope, ssd=self._files_ssd
+        )
         self.scope_cancel_button.setText("Cancel — back to the start")
         self.final_cancel_button.setText("Cancel — back to the start")
         self.ack_button.setText(
@@ -770,7 +776,9 @@ class MainWindow(QMainWindow):
             in (DriveClass.SATA_SSD, DriveClass.NVME)
             or self._class_for_letter(_drive_letter_of(root)) is None
         )
-        self._file_session = self._file_authority.begin_session(scope)
+        self._file_session = self._file_authority.begin_session(
+            scope, ssd=self._free_ssd
+        )
         self.scope_cancel_button.setText("Cancel — back to the start")
         self.final_cancel_button.setText("Cancel — back to the start")
         self.ack_button.setText(
@@ -1175,15 +1183,20 @@ class MainWindow(QMainWindow):
         self.verdict_label.style().polish(self.verdict_label)
 
     def _issue_file_report(self, build_callable, saved_label):
-        """Issue a signed wipe report into the documents folder."""
+        """Issue a signed wipe report into the reports subfolder.
+
+        Reports are not certificates, and they do not live in
+        the certificates folder under its name — they get their
+        own ``reports`` subfolder of the documents folder, so
+        the two document kinds can never be confused on disk.
+        """
         self._document_path = None
         self.open_doc_button.setEnabled(False)
         try:
             report = build_callable()
-            self._documents_dir.mkdir(parents=True, exist_ok=True)
-            path = filewipe.write_file_report(
-                report, self._documents_dir
-            )
+            reports_dir = self._documents_dir / "reports"
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            path = filewipe.write_file_report(report, reports_dir)
             self._document_path = Path(path)
             self.cert_label.setText(
                 f"{saved_label}: {self._document_path.name}\n"
@@ -1206,7 +1219,14 @@ class MainWindow(QMainWindow):
             f"{human_size(scope.total_bytes)} confirmed in scope"
         )
         self.again_button.setText("Wipe more files")
-        if result.failed == 0 and result.skipped == 0:
+        # Links are not failures: a removed link is the designed
+        # outcome (never followed, target untouched), so it never
+        # turns a clean run into "some items did not wipe".
+        links_left = sum(
+            1 for o in result.outcomes
+            if o.status == filewipe.LINK_LEFT
+        )
+        if result.failed == 0 and result.skipped == 0 and links_left == 0:
             self._set_verdict("FILE WIPE COMPLETE", True)
         elif result.wiped_verified or result.wiped_unverified:
             self._set_verdict(
@@ -1219,6 +1239,8 @@ class MainWindow(QMainWindow):
             filewipe.WIPED_UNVERIFIED: "WIPED — NOT VERIFIED",
             filewipe.FAILED: "FAILED",
             filewipe.SKIPPED: "SKIPPED",
+            filewipe.LINK_REMOVED: "LINK REMOVED — TARGET NOT TOUCHED",
+            filewipe.LINK_LEFT: "LINK LEFT IN PLACE",
         }
         lines = [
             f"Wiped and verified: {result.wiped_verified}",
@@ -1226,6 +1248,8 @@ class MainWindow(QMainWindow):
             f"{result.wiped_unverified}",
             f"Failed: {result.failed}",
             f"Skipped: {result.skipped}",
+            f"Links removed (targets not touched): "
+            f"{result.links_removed}",
             f"Total data overwritten: "
             f"{human_size(result.total_bytes_written)}",
             f"Folders removed afterwards: "
