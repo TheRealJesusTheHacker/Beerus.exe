@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -239,6 +240,19 @@ def test_main_runs_a_session_through_the_factory_seams(qapp, tmp_path):
 # ------------------------------------------------------------------ launcher
 
 
+# The launcher tests execute the real beerus-live script under
+# /bin/sh, with #!/bin/sh PATH stubs: the launcher is a POSIX
+# shell script that only ever runs on the Debian live image,
+# and a Windows checkout has no /bin/sh to execute it with.
+# This is the image-definition class (kit-hunt v0.5.1): the
+# tests run in full on Linux and skip on Windows, where the
+# thing they exercise cannot exist.
+requires_posix_sh = pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="beerus-live launcher tests need a POSIX /bin/sh (Linux)",
+)
+
+
 def _stub(directory: Path, name: str, log: Path, code: int) -> None:
     script = directory / name
     script.write_text(
@@ -280,6 +294,7 @@ _NOTICE_LINES = (
 )
 
 
+@requires_posix_sh
 def test_launcher_graphical_success_stays_graphical(tmp_path):
     proc, log = _run_launcher(tmp_path, startx_code=0, python_code=0)
     assert proc.returncode == 0
@@ -288,6 +303,7 @@ def test_launcher_graphical_success_stays_graphical(tmp_path):
     assert proc.stdout == ""
 
 
+@requires_posix_sh
 def test_launcher_graphical_refusal_is_final(tmp_path):
     proc, log = _run_launcher(tmp_path, startx_code=2, python_code=0)
     assert proc.returncode == 2
@@ -296,6 +312,7 @@ def test_launcher_graphical_refusal_is_final(tmp_path):
     assert proc.stdout == ""
 
 
+@requires_posix_sh
 def test_launcher_falls_back_when_graphics_fail(tmp_path):
     proc, log = _run_launcher(tmp_path, startx_code=1, python_code=0)
     assert proc.returncode == 0
@@ -303,6 +320,7 @@ def test_launcher_falls_back_when_graphics_fail(tmp_path):
     assert "python3 -m beerus" in log
 
 
+@requires_posix_sh
 def test_launcher_fallback_exit_code_is_the_consoles(tmp_path):
     proc, log = _run_launcher(tmp_path, startx_code=1, python_code=2)
     assert proc.returncode == 2
@@ -310,6 +328,7 @@ def test_launcher_fallback_exit_code_is_the_consoles(tmp_path):
     assert "python3 -m beerus" in log
 
 
+@requires_posix_sh
 def test_launcher_falls_back_when_startx_is_missing(tmp_path):
     proc, log = _run_launcher(tmp_path, startx_code=None, python_code=0)
     assert proc.returncode == 0

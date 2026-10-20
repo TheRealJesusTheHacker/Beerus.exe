@@ -47,7 +47,14 @@ Beerus Portable joins Beerus's own palette.
   of the window, and its finish is observed and retires
   the worker pairing deterministically. No gate, engine,
   verification, wording, or flow changed, and the test
-  suite's assertions are untouched.
+  suite's assertions are untouched. The same gate also
+  exposed five launcher tests that execute the POSIX
+  `beerus-live` shell script under `/bin/sh` — impossible
+  on a Windows checkout, and hidden until now behind the
+  abort, which killed the suite before it reached them.
+  They now skip on Windows with the reason stated, the
+  same disposition as the image-definition tests
+  (kit-hunt v0.5.1), and still run in full on Linux.
 - **Honest limits, unchanged:** the executor still ships
   disarmed, with no arming path in the app. The bootable
   image has still never been built — this release is the
