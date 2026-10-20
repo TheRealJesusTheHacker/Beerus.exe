@@ -31,7 +31,10 @@ Three modes, chosen on the first screen:
   their entries removed. On an SSD this cannot promise the
   drive's memory cells themselves were rewritten - the app
   says so on screen; the whole-drive sanitize is the strong
-  guarantee there.
+  guarantee there. And copies of a file's data outside the
+  picked files (shadow copies, temp files, thumbnails,
+  journals) are not reached - the app says that too, on
+  screen and in the wipe report.
 - Free space: the unused space on a volume is filled and
   overwritten so data deleted earlier cannot be recovered.
   Existing files and Windows itself are not touched.
@@ -60,17 +63,25 @@ nothing expands silently, and links are never followed.
 
 ARMING - READ THIS
 ------------------
-This edition ships DISARMED, the same way the engine ships
-everywhere: its real-drive executor refuses to run until it
-has been armed by Sentinel at deployment - a deployment build
-with the executor constructed armed, plus the
-BEERUS_REAL_WIPE_ARMED environment variable set on the
+Whole-drive mode in this edition ships DISARMED, the same way
+the engine ships everywhere: its real-drive executor refuses
+to run until it has been armed by Sentinel at deployment - a
+deployment build with the executor constructed armed, plus
+the BEERUS_REAL_WIPE_ARMED environment variable set on the
 machine. There is no setting inside the app that arms it, and
 no way to click your way past it. A disarmed copy walks the
 whole gate flow and then refuses, in plain language, before
 anything is sent to a drive. Field validation of armed
 destruction on real hardware is Phase 5 work and is not
 claimed here.
+
+Files-and-folders and free-space modes are live in this
+edition - there is no separate arming step for them, and this
+is stated plainly rather than hidden: those engines can only
+ever write what their own consent tokens authorize, which is
+the exact files you confirmed, or blank filler inside one
+volume's free space. The gates are their protection, the same
+as everywhere else in Beerus.
 
 WHERE THINGS ARE WRITTEN (honest list)
 --------------------------------------
