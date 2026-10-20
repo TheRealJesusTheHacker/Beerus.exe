@@ -43,6 +43,17 @@ Beerus Portable — the portable app edition, and file-level wiping.
   the full suite offscreen, a staged-app launch smoke test,
   and SHA-256 checksums. 331 tests, all against synthetic
   targets.
+- **Windows-verified:** cutting this release ran the full
+  suite on a Windows runner for the first time, and it
+  exposed POSIX-only spots in the engine — device-path
+  validation keyed to the host's path rules, unguarded
+  `O_NOFOLLOW`, positioned reads, text-mode descriptor
+  writes that would have corrupted overwrite passes, and
+  link refusals delegated to a flag Windows does not have.
+  All fixed (explicit `lstat` link refusals, `posixpath`
+  validation for `/dev` paths, `O_BINARY` data surfaces, a
+  `pread` fallback); the suite is green on Windows and
+  Linux alike.
 - **Independent audit cycle:** the portable surface was
   audited before release (2 HIGH, 6 MEDIUM, 3 LOW findings,
   all fixed and re-audited, each with a permanent regression
