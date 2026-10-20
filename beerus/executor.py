@@ -153,7 +153,12 @@ class FileExecutor:
             )
 
         try:
-            fd = os.open(self.target_path, os.O_WRONLY | os.O_NOFOLLOW)
+            fd = os.open(
+                self.target_path,
+                os.O_WRONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_BINARY", 0),
+            )
         except OSError:
             raise UnsafeTargetError(
                 "The target file could not be opened for wiping. "
@@ -258,7 +263,10 @@ class RealExecutor:
                         drive.size_bytes,
                     )
                 )
-                fd = os.open(drive.device_path, os.O_WRONLY)
+                fd = os.open(
+                    drive.device_path,
+                    os.O_WRONLY | getattr(os, "O_BINARY", 0),
+                )
                 try:
                     written = run_overwrite(
                         fd, drive.size_bytes, plan.passes, emit, step.label
