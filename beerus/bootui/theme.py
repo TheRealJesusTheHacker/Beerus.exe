@@ -6,10 +6,10 @@ violet-black, Beerus violet, and destruction gold. The palette
 is the owner's own call, a namesake exception he made for this
 tool — purple for Beerus, in his words, "because it's
 appropriate" (2026-10-20) — recorded here so no future sweep
-or editor "corrects" Beerus back to fleet colors. It
-deliberately differs from ``beerus_portable.theme`` (the
-shipped portable app keeps the fleet palette; this one does
-not, and a test pins the difference).
+or editor "corrects" Beerus back to fleet colors. It is
+the same palette ``beerus_portable.theme`` carries: the
+portable app and this boot UI share one identity, and a
+test pins the agreement.
 
 Violet-on-black is worked for, not assumed: every
 text/background pairing used here is held to a WCAG contrast

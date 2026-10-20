@@ -29,6 +29,25 @@ Beerus Portable joins Beerus's own palette.
   pixel-audited before release: no light backgrounds, the
   danger red present only on the final erase buttons, and
   the retired fleet green nowhere in any render.
+- **Boot UI: a wipe's thread can no longer abort the
+  program as its window is destroyed.** One further change
+  beyond the palette, and the reason this release was held:
+  the boot window owned its wipe thread as a child object
+  and never observed the thread's end. A wipe thread is
+  still unwinding for a beat after its result page shows,
+  and destroying the window in that beat destroyed the
+  still-running thread — which aborts the whole process
+  (Qt: "Destroyed while thread is still running"). It is
+  what turned this release's first two Windows gate runs
+  red: measured on the untouched tree, the boot-UI test
+  file aborted in 4 of 12 runs across two independent
+  local measurement series, always inside the
+  wipe-flow tests with no failing assertion to show for
+  it. The thread is now owned by the application instead
+  of the window, and its finish is observed and retires
+  the worker pairing deterministically. No gate, engine,
+  verification, wording, or flow changed, and the test
+  suite's assertions are untouched.
 - **Honest limits, unchanged:** the executor still ships
   disarmed, with no arming path in the app. The bootable
   image has still never been built — this release is the

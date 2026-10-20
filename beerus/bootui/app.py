@@ -689,7 +689,21 @@ class BootWindow(QMainWindow):
         self._wiping = True
         self._show(self.page_running)
 
-        self._thread = QThread(self)
+        # The wipe thread is owned by the application, NOT by
+        # this window, and its end is observed below. Both halves
+        # matter. A QThread destroyed while it is still running
+        # aborts the whole process, and a wipe's thread is still
+        # unwinding for a beat after its result is on screen —
+        # the terminal signal and the thread's actual termination
+        # are not the same moment. When the thread was this
+        # window's child, destroying the window in that beat
+        # (closing the session, or any embedding that drops the
+        # window once the result shows) took the process down
+        # with it. Owned by the application, the thread's
+        # lifetime no longer depends on this window outliving
+        # it, and `finished` retires the pair deterministically.
+        app = QApplication.instance()
+        self._thread = QThread(app) if app is not None else QThread()
         self._worker = WipeWorker(self._engine, self._drive, token)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
@@ -702,7 +716,16 @@ class BootWindow(QMainWindow):
         self._worker.failed_beerus.connect(self._thread.quit)
         self._worker.failed_os.connect(self._thread.quit)
         self._worker.failed_unknown.connect(self._thread.quit)
+        self._thread.finished.connect(self._on_wipe_thread_finished)
         self._thread.start()
+
+    def _on_wipe_thread_finished(self):
+        # The wipe thread has fully terminated (this is a beat
+        # AFTER the result page shows — see _start_wipe). Release
+        # the pair, unless a later wipe already owns the slots.
+        if self.sender() is self._thread:
+            self._thread = None
+            self._worker = None
 
     def _on_progress(self, event):
         if event.message:
