@@ -23,6 +23,7 @@ from beerus.gates import build_scope_text
 from beerus.inventory import Drive, enumerate_drives, find_drive
 from beerus.methods import select_plan
 from beerus.progress import EventKind, ProgressEvent
+from beerus.verify import VerificationResult, unverified_result
 
 _UNIDENTIFIABLE_MESSAGE = (
     "Beerus could not identify this drive — its model or serial number "
@@ -60,13 +61,16 @@ class WipeResult:
     bytes_written: int
     detail: str
     completed_at: str
+    started_at: str = ""
+    verification: VerificationResult | None = None
 
 
 class WipeEngine:
-    def __init__(self, authority, executor, enumerator=enumerate_drives):
+    def __init__(self, authority, executor, enumerator=enumerate_drives, verifier=None):
         self._authority = authority
         self._executor = executor
         self._enumerator = enumerator
+        self._verifier = verifier
 
     def list_drives(self):
         return list(self._enumerator())
@@ -77,6 +81,7 @@ class WipeEngine:
     def wipe(self, target, token, emit=None) -> WipeResult:
         if emit is None:
             emit = lambda event: None  # noqa: E731 - simple no-op default
+        started_at = datetime.now(timezone.utc).isoformat()
 
         # 1. Re-read the drives fresh; never trust the earlier listing.
         try:
@@ -126,7 +131,34 @@ class WipeEngine:
                 f"{current.model} (serial {current.serial}).",
             )
         )
-        # 10. Report honestly what was done.
+        # 10. Verify the wipe, if a verifier was wired in. A
+        #     verification failure never turns a finished wipe into
+        #     a crash, and never claims a verification it didn't get.
+        verification = None
+        if self._verifier is not None:
+            try:
+                verification = self._verifier.verify(
+                    current,
+                    plan,
+                    emit,
+                    actual_method_label=report.method_label,
+                )
+            except Exception:
+                verification = unverified_result(
+                    current,
+                    plan,
+                    "The wipe finished, but verification could not "
+                    "be completed.",
+                    actual_method_label=report.method_label,
+                )
+                emit(
+                    ProgressEvent(
+                        EventKind.FAILED,
+                        "The wipe finished, but verification could "
+                        "not be completed.",
+                    )
+                )
+        # 11. Report honestly what was done.
         return WipeResult(
             True,
             current.fingerprint,
@@ -135,4 +167,6 @@ class WipeEngine:
             report.bytes_written,
             report.detail,
             datetime.now(timezone.utc).isoformat(),
+            started_at=started_at,
+            verification=verification,
         )
