@@ -87,13 +87,23 @@ def test_the_violet_primary_is_purple_dominant_by_design():
     )
 
 
-def test_this_palette_is_not_the_portables():
-    # The difference is the design (the owner's namesake
-    # exception for Beerus, 2026-10-20): the boot UI's primary
-    # is Beerus violet, the portable's is the fleet green.
-    assert theme.VIOLET != portable_theme.GREEN
-    assert theme.BG != portable_theme.BG
-    assert theme.TEXT != portable_theme.TEXT
+def test_this_palette_is_the_portables():
+    # One tool, one identity: until v0.6.0 the portable kept
+    # the fleet palette and this test pinned the difference.
+    # In v0.6.1 the portable joined the boot UI's canonical
+    # namesake set (the owner's exception for Beerus,
+    # 2026-10-20), and the pin now runs the other way — the
+    # two faces of Beerus agree, constant for constant.
+    assert theme.VIOLET == portable_theme.VIOLET
+    assert theme.BG == portable_theme.BG
+    assert theme.TEXT == portable_theme.TEXT
+    assert _palette() == {
+        name: getattr(portable_theme, name)
+        for name in dir(portable_theme)
+        if name.isupper()
+        and isinstance(getattr(portable_theme, name), str)
+        and getattr(portable_theme, name).startswith("#")
+    }
 
 
 def test_font_stack_names_the_live_images_font():

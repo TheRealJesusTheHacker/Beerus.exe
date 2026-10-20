@@ -611,7 +611,9 @@ As built:
   with the erase action in true danger red. Every text
   pairing is computed and pinned ≥ 4.5:1, and the constants
   are literal-pinned in the palette tests. The portable app
-  keeps the fleet palette, unchanged.
+  kept the fleet palette at this phase; it joined this same
+  identity in v0.6.1, pinned to agree with the boot UI's
+  theme constant for constant.
 - **Definition changes:** graphical-session packages in the
   package list (X core, framebuffer/VESA, libinput, `xinit`,
   PySide6 Qt, DejaVu Sans — the console needs none of them);

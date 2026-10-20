@@ -2,6 +2,43 @@
 
 All notable changes to BEERUS.EXE are recorded here.
 
+## [0.6.1] — 2026-10-20
+
+Beerus Portable joins Beerus's own palette.
+
+- **One identity for both faces of Beerus:** the portable
+  app now wears the same canonical namesake palette as the
+  boot UI (v0.6.0) — deep violet-black, Beerus violet, and
+  destruction gold — by the owner's namesake exception for
+  this tool (2026-10-20 — purple for Beerus "because it's
+  appropriate"). The fleet green/black the portable wore
+  through v0.6.0 is retired for this tool. The constants are
+  literal-pinned in both palette suites, and the two theme
+  modules are pinned to agree constant for constant, so the
+  portable app and the boot environment cannot drift apart
+  in dress. The erase action keeps the fleet's exact danger
+  pairing (red `#b03a2e`, white text) — and red appears
+  nowhere else.
+- **Colors only.** No behavior, layout, wording, gate,
+  engine, verification, or certificate change: the diff is
+  the portable's theme module, the palette tests, the
+  version, and these notes. Every text pairing is held to
+  the same 4.5:1 contrast floor — worst pairing 5.89:1
+  (disabled text on panel) — computed from the constants and
+  verified on a full re-render of the window's states,
+  pixel-audited before release: no light backgrounds, the
+  danger red present only on the final erase buttons, and
+  the retired fleet green nowhere in any render.
+- **Honest limits, unchanged:** the executor still ships
+  disarmed, with no arming path in the app. The bootable
+  image has still never been built — this release is the
+  portable app only, and nothing in it is or implies a
+  downloadable boot image. How the new colors look on a
+  real Windows desktop (real fonts, ClearType, DPI scaling)
+  is not claimed; the renders behind this release are
+  offscreen Qt on the build machine, and the release train
+  re-proved the suite and the packaged app on Windows.
+
 ## [0.6.0] — 2026-10-20
 
 Phase 4 — the boot-environment UI.

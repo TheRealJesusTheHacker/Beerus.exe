@@ -2,7 +2,7 @@
 
 **Sentinel Safeguard LLC — secure drive destruction, on a key.**
 
-[![Version](https://img.shields.io/badge/version-v0.6.0-2ee06f?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
+[![Version](https://img.shields.io/badge/version-v0.6.1-a478f7?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
 [![Platform](https://img.shields.io/badge/platform-Windows%20app%20%2B%20Bootable%20USB-0078D6?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe)
 [![Python](https://img.shields.io/badge/Python-3-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-b03a2e?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/LICENSE)
@@ -202,6 +202,18 @@ standard: plain language, no corners cut, nothing promised that
 isn't delivered.
 
 ## Status
+
+**v0.6.1 — Beerus Portable takes Beerus's colors.** The
+portable app now wears the same namesake palette as the boot
+UI — deep violet-black, Beerus violet, and destruction gold,
+the owner's namesake call for this tool — pinned to agree
+with the boot UI's theme constant for constant, so both
+faces of Beerus present one identity. Colors only: no
+behavior, gate, engine, or wording change, and the executor
+still ships disarmed with no arming path in the app. This
+release is the portable app only; the bootable image is
+still unbuilt — everything said about it in the v0.6.0 note
+below stands.
 
 **v0.6.0 — the boot-environment UI (Phase 4).** The key now
 boots graphical-first: the boot service's launcher starts an

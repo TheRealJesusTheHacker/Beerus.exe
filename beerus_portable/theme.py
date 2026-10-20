@@ -1,28 +1,53 @@
-"""The Beerus Portable palette and stylesheet.
+"""The Beerus Portable palette and stylesheet — BEERUS'S OWN.
 
-Sentinel house standard: green on black, nothing else. No purple
-anywhere. Every text/background pairing used here is held to a
-WCAG contrast ratio of at least 4.5:1 — the palette test computes
-the ratios from these constants, so a palette edit that breaks
-contrast fails the suite instead of shipping.
+This is not the fleet's shared green/black. The portable app
+wears its namesake's identity: Beerus, God of Destruction —
+deep violet-black, Beerus violet, and destruction gold. The
+palette is the owner's own call, a namesake exception he made
+for this tool — purple for Beerus, in his words, "because
+it's appropriate" (2026-10-20) — recorded here so no future
+sweep or editor "corrects" Beerus back to fleet colors.
+
+One tool, one identity: these are the same canonical namesake
+constants the boot UI pins in ``beerus.bootui.theme`` (the
+fleet palette program's set, 2026-10-20), so the portable app
+and the boot environment cannot drift apart in dress — the
+palette tests in both suites assert the two modules agree,
+constant for constant.
+
+Violet-on-black is worked for, not assumed: every
+text/background pairing used here is held to a WCAG contrast
+ratio of at least 4.5:1, computed from these constants by the
+palette test, so a palette edit that breaks contrast fails
+the suite instead of shipping. Red appears only as the erase
+action's danger accent, in the fleet's exact danger pairing.
 """
 
 from __future__ import annotations
 
-# The fleet palette (shared with ARGUS.EXE's verified theme).
-BG = "#060a07"  # window background, near-black green
-PANEL = "#0c130d"  # raised panels
-PANEL_BORDER = "#1d2b1f"
-TEXT = "#e8f2ea"  # primary text
-TEXT_FAINT = "#8fae94"  # secondary text (still >= 4.5:1 on BG/PANEL)
-GREEN = "#2ee06f"  # the Sentinel green: primary actions, headings
-GREEN_DARK_TEXT = "#04150a"  # text on the green itself
-RED = "#b03a2e"  # rare accent only: the final erase action
+# The canonical namesake set for Beerus — the same values the
+# boot UI pins (beerus.bootui.theme); the palette test asserts
+# the two agree. Do not retune them locally.
+BG = "#0a0614"  # deep violet-black — the void, tinted with his color
+PANEL = "#150d24"  # raised panels
+PANEL_BORDER = "#2e2150"  # deep violet
+TEXT = "#f2edfa"  # hot lavender-white
+TEXT_FAINT = "#a99cc9"  # muted lavender-grey (>= 4.5:1 on BG/PANEL)
+VIOLET = "#a478f7"  # Beerus violet: primary actions, headings, progress
+VIOLET_DARK_TEXT = "#12081f"  # text on the violet itself
+GOLD = "#e0aa3e"  # destruction gold: the second signature (serial, PASS)
+# The canonical hot highlight (10.09:1 on BG / 9.49:1 on PANEL,
+# proven by the palette test): the lightest violet in the set,
+# held for emphasis elements. Pinned and proven with the rest
+# of the set so the full canonical palette lives in this one
+# module, exactly as it does in the boot UI's theme.
+ENERGY = "#d0a6ff"
+INPUT_BG = "#0e0819"
+# Disabled controls are exempt from WCAG contrast rules, but
+# the house bar is a readable render: this still clears 4.5:1.
+DISABLED_TEXT = "#948ab5"  # lavender-grey
+RED = "#b03a2e"  # danger only: the final erase action (the fleet pairing)
 RED_TEXT = "#ffffff"  # text on the red accent
-INPUT_BG = "#0a0f0a"
-# Disabled controls are exempt from WCAG contrast rules, but the
-# house bar is a readable render: this still clears 4.5:1.
-DISABLED_TEXT = "#7d927f"
 
 # Every (foreground, background) pairing the stylesheet renders
 # text in. The palette test asserts each of these is >= 4.5:1.
@@ -30,11 +55,14 @@ TEXT_PAIRS = (
     (TEXT, BG),
     (TEXT, PANEL),
     (TEXT, INPUT_BG),
+    (TEXT, PANEL_BORDER),  # the selected drive row: violet wash, TEXT on it
     (TEXT_FAINT, BG),
     (TEXT_FAINT, PANEL),
-    (GREEN, BG),
-    (GREEN, PANEL),
-    (GREEN_DARK_TEXT, GREEN),
+    (VIOLET, BG),
+    (VIOLET, PANEL),
+    (VIOLET_DARK_TEXT, VIOLET),
+    (GOLD, BG),
+    (GOLD, PANEL),
     (RED_TEXT, RED),
     (DISABLED_TEXT, PANEL),
     (DISABLED_TEXT, BG),
@@ -70,7 +98,7 @@ QMainWindow, QWidget {{
 QLabel#title {{
     font-size: 26px;
     font-weight: bold;
-    color: {GREEN};
+    color: {VIOLET};
 }}
 QLabel#subtitle {{
     color: {TEXT_FAINT};
@@ -84,7 +112,7 @@ QLabel#identity {{
 QLabel#serial {{
     font-size: 20px;
     font-weight: bold;
-    color: {GREEN};
+    color: {GOLD};
 }}
 QLabel#warning {{
     font-size: 16px;
@@ -94,7 +122,7 @@ QLabel#warning {{
 QLabel#verdictPass {{
     font-size: 22px;
     font-weight: bold;
-    color: {GREEN};
+    color: {GOLD};
 }}
 QLabel#verdictBad {{
     font-size: 22px;
@@ -148,15 +176,15 @@ QPushButton {{
     color: {TEXT};
 }}
 QPushButton:hover {{
-    border-color: {GREEN};
+    border-color: {GOLD};
 }}
 QPushButton:disabled {{
     color: {DISABLED_TEXT};
     border-color: {PANEL};
 }}
 QPushButton#primary {{
-    background-color: {GREEN};
-    color: {GREEN_DARK_TEXT};
+    background-color: {VIOLET};
+    color: {VIOLET_DARK_TEXT};
     font-weight: bold;
     border: none;
 }}
@@ -179,7 +207,7 @@ QProgressBar {{
     color: {TEXT};
 }}
 QProgressBar::chunk {{
-    background-color: {GREEN};
+    background-color: {VIOLET};
     border-radius: 5px;
 }}
 QRadioButton {{
@@ -195,8 +223,8 @@ QRadioButton::indicator {{
     background-color: {INPUT_BG};
 }}
 QRadioButton::indicator:checked {{
-    border-color: {GREEN};
-    background-color: {GREEN};
+    border-color: {VIOLET};
+    background-color: {VIOLET};
 }}
 QComboBox {{
     background-color: {INPUT_BG};
