@@ -8,6 +8,16 @@ capacity, and interface — never by its device path. Device paths and
 kernel names (``/dev/sdb``, ``sdb``) change across reboots, cable
 swaps, and re-lettering; the fingerprint deliberately excludes them
 so the same physical drive keeps the same identity.
+
+Boot-device note: a disk counts as the boot device when the mount
+tree says so (a partition mounted at a system mountpoint), when a
+partition sits at a live-boot medium mountpoint, OR when any of its
+partitions carries the Destruct Key Pro volume label baked into the
+image at build time (see ``beerus.bootmedium``). The label layer is
+independent of mounts: labels are readable from ``lsblk`` without
+mounting anything, so a boot partition that was never mounted —
+the live key's own EFI partition is the classic case — still marks
+its disk as untouchable.
 """
 
 from __future__ import annotations
@@ -19,6 +29,7 @@ import subprocess
 from dataclasses import dataclass
 from enum import Enum
 
+from beerus.bootmedium import is_boot_medium_label, is_live_medium_mountpoint
 from beerus.errors import BeerusError
 
 
@@ -52,6 +63,27 @@ PLACEHOLDER_TEXT: frozenset = frozenset(
         "o.e.m.",
     }
 )
+
+
+# Control characters have no legitimate place in a drive's
+# identity strings — and on a terminal they are an injection
+# vector: a crafted model or serial carrying newlines or escape
+# sequences could forge console output (a fake drive line, a fake
+# verification verdict) in front of the operator. Identity fields
+# are cleaned of them at parse time, for every consumer. The
+# cleaning removes the control bytes themselves (the escape
+# character above all); the printable residue of a sequence is
+# inert text — it can look odd, but it cannot act — and removing
+# more would risk eating legitimate identity characters that the
+# fingerprint depends on.
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _clean_identity_text(value) -> str:
+    """A drive identity string with control characters removed."""
+    if value is None:
+        return ""
+    return _CONTROL_CHARS.sub("", str(value)).strip()
 
 
 def _is_real_text(value) -> bool:
@@ -120,6 +152,9 @@ class Drive:
 
 
 # Mountpoints that mean "the running system lives on this drive".
+# beerus.bootmedium adds two more signals on top of this set: the
+# live medium's own mountpoints, and the image's baked-in volume
+# label, which marks a disk even when nothing on it is mounted.
 BOOT_MOUNTPOINTS = frozenset({"/", "/boot", "/boot/efi", "/efi"})
 
 
@@ -158,7 +193,7 @@ def _collect_mountpoints(node) -> list:
     mountpoints = node.get("mountpoints")
     if isinstance(mountpoints, (list, tuple)):
         for entry in mountpoints:
-            if entry:
+            if isinstance(entry, str) and entry:
                 found.append(entry)
     elif isinstance(mountpoints, str) and mountpoints:
         found.append(mountpoints)
@@ -168,9 +203,33 @@ def _collect_mountpoints(node) -> list:
     if isinstance(legacy, str) and legacy:
         found.append(legacy)
 
-    for child in node.get("children") or []:
-        if isinstance(child, dict):
-            found.extend(_collect_mountpoints(child))
+    children = node.get("children")
+    if isinstance(children, (list, tuple)):
+        for child in children:
+            if isinstance(child, dict):
+                found.extend(_collect_mountpoints(child))
+
+    return found
+
+
+def _collect_labels(node) -> list:
+    """Every filesystem label on *node* and its children, at any depth.
+
+    Labels are read from the ``lsblk`` data itself — the kernel
+    reports them for mounted and unmounted filesystems alike,
+    which is exactly what the image-level boot protection needs.
+    """
+    found: list = []
+
+    label = node.get("label")
+    if isinstance(label, str) and label:
+        found.append(label)
+
+    children = node.get("children")
+    if isinstance(children, (list, tuple)):
+        for child in children:
+            if isinstance(child, dict):
+                found.extend(_collect_labels(child))
 
     return found
 
@@ -186,16 +245,28 @@ def parse_lsblk_json(text) -> list[Drive]:
     if not isinstance(data, dict):
         return []
 
+    devices = data.get("blockdevices")
+    if not isinstance(devices, (list, tuple)):
+        return []
+
     drives: list[Drive] = []
-    for node in data.get("blockdevices") or []:
+    for node in devices:
         if not isinstance(node, dict):
             continue
         if node.get("type") != "disk":
             continue
 
         mountpoints = _collect_mountpoints(node)
-        is_boot = any(
-            _normalize_mountpoint(mp) in BOOT_MOUNTPOINTS for mp in mountpoints
+        is_boot = (
+            any(
+                _normalize_mountpoint(mp) in BOOT_MOUNTPOINTS
+                or is_live_medium_mountpoint(mp)
+                for mp in mountpoints
+            )
+            or any(
+                is_boot_medium_label(label)
+                for label in _collect_labels(node)
+            )
         )
 
         model = node.get("model")
@@ -215,12 +286,14 @@ def parse_lsblk_json(text) -> list[Drive]:
                 device_path=node.get("path") or "",
                 raw_name=raw_name,
                 # lsblk pads MODEL/SERIAL on some systems; canonicalize
-                # here so the typed-serial gate compares clean values.
-                model="" if model is None else str(model).strip(),
-                serial="" if serial is None else str(serial).strip(),
+                # here so the typed-serial gate compares clean values,
+                # with control characters removed (see
+                # _clean_identity_text).
+                model=_clean_identity_text(model),
+                serial=_clean_identity_text(serial),
                 size_bytes=size_bytes,
-                interface="" if tran is None else str(tran).strip(),
-                wwn="" if wwn is None else str(wwn).strip(),
+                interface=_clean_identity_text(tran),
+                wwn=_clean_identity_text(wwn),
                 drive_class=classify(raw_name, tran, node.get("rota")),
                 is_boot=is_boot,
             )
@@ -233,7 +306,7 @@ LSBLK_ARGV = [
     "--json",
     "--bytes",
     "--output",
-    "NAME,PATH,MODEL,SERIAL,SIZE,TYPE,TRAN,ROTA,MOUNTPOINTS,WWN",
+    "NAME,PATH,MODEL,SERIAL,SIZE,TYPE,TRAN,ROTA,MOUNTPOINTS,WWN,LABEL",
 ]
 
 
