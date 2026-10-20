@@ -29,16 +29,20 @@ from pathlib import Path
 # into the spec namespace — they must be imported explicitly, or
 # the build dies with NameError the first time the spec runs
 # (the lesson Argus and Charon both recorded in their specs).
-# Import exactly the classes used below.
-from PyInstaller.utils.win32.versioninfo import (
-    FixedFileInfo,
-    StringFileInfo,
-    StringStruct,
-    StringTable,
-    VSVersionInfo,
-    VarFileInfo,
-    VarStruct,
-)
+# Import exactly the classes used below. The import itself is
+# Windows-only (the module needs pywin32), so it is guarded the
+# same way the version value below is: on Windows the resource
+# is built; anywhere else the spec still runs for smoke builds.
+if sys.platform.startswith("win"):
+    from PyInstaller.utils.win32.versioninfo import (
+        FixedFileInfo,
+        StringFileInfo,
+        StringStruct,
+        StringTable,
+        VSVersionInfo,
+        VarFileInfo,
+        VarStruct,
+    )
 
 ROOT = Path(SPECPATH).parent
 
