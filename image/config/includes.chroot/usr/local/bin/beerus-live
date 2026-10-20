@@ -1,0 +1,11 @@
+#!/bin/sh
+# beerus-live — start the Beerus boot console.
+#
+# The beerus package is staged into the image at /opt/beerus at
+# build time (image/stage_image.py, run by image/build.sh).
+# PYTHONPATH points there; the console module does the rest —
+# including refusing to arm anything if this machine is not
+# actually running the live image.
+PYTHONPATH="/opt/beerus${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+exec python3 -m beerus "$@"

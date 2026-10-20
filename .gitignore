@@ -20,6 +20,23 @@ images/
 *.iso
 *.img
 
+# Live-image build state (image/ holds the checked-in DEFINITION;
+# everything the build generates or stages stays out of the repo —
+# the staged package and marker are recreated by stage_image.py at
+# every build, and live-build's working files are its own)
+image/config/includes.chroot/opt/
+image/config/includes.chroot/etc/beerus/live-image.json
+image/.build/
+image/binary/
+image/cache/
+image/chroot/
+image/live-image-*
+image/config/binary
+image/config/bootstrap
+image/config/chroot
+image/config/common
+image/config/source
+
 # OS / editor
 Thumbs.db
 Desktop.ini

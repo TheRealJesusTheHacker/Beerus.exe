@@ -1,0 +1,40 @@
+# beerus-live.service — the Destruct Key Pro boot console.
+#
+# The image boots straight into Beerus: this service owns the
+# first console (tty1) and runs the boot console as root, which
+# is the session the console requires before it will arm the
+# drive wiper (see beerus.live). It is enabled by the
+# multi-user.target.wants link beside this file; the build hook
+# masks the ordinary tty1 login so the two never fight over the
+# terminal. Logins remain available on the other consoles for the
+# operator's own work (copying job documents off, for example).
+#
+# If the console exits because something went wrong, systemd
+# restarts it — a destruction tool that dies to a blank screen in
+# front of a client does not ship. Two exits are final instead: a
+# clean exit (the operator quit), and the designed refusal
+# (exit 2 — for example, the image marker unreadable). A refusal
+# must stay on the screen to be read, not scroll away in a
+# restart loop, so exit 2 is exempted from the restart.
+
+[Unit]
+Description=Beerus - Destruct Key Pro boot console
+After=systemd-user-sessions.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/beerus-live
+User=root
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Restart=on-failure
+RestartPreventExitStatus=2
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

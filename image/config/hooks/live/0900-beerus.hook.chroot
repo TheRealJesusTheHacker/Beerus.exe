@@ -1,0 +1,43 @@
+#!/bin/sh
+# 0900-beerus.hook.chroot — final checks and lockdown inside the
+# image, run by the image builder near the end of the build.
+#
+# Two jobs:
+#
+# 1. PROVE THE IMAGE IS WHOLE. The staged Beerus package and the
+#    image marker must be in place. An image without them would
+#    boot to a console that refuses to arm — safe, but useless,
+#    and not something to discover in front of a client. Fail the
+#    build here instead.
+#
+# 2. LOCK THE ENVIRONMENT DOWN. The first console belongs to the
+#    Beerus console service, and no network service starts in the
+#    destruction environment.
+set -e
+
+if [ ! -f /opt/beerus/beerus/live.py ]; then
+  echo "beerus hook: /opt/beerus/beerus/live.py is missing." >&2
+  echo "beerus hook: staging did not run — build through image/build.sh, which stages first." >&2
+  exit 1
+fi
+
+if [ ! -f /etc/beerus/live-image.json ]; then
+  echo "beerus hook: /etc/beerus/live-image.json is missing." >&2
+  echo "beerus hook: staging did not run — build through image/build.sh, which stages first." >&2
+  exit 1
+fi
+
+# The console service owns tty1 (enabled by its
+# multi-user.target.wants link in the image). Mask the ordinary
+# tty1 login so the two never fight over the terminal; logins on
+# the other consoles are untouched.
+systemctl mask getty@tty1.service >/dev/null 2>&1 || true
+
+# If a package-list change ever pulls SSH in, it does not start:
+# the destruction environment has no network services.
+systemctl disable ssh.service >/dev/null 2>&1 || true
+
+# Job documents live in memory in the live system and are gone at
+# shutdown (the console says so, every time). Create their home
+# now so the path exists from the first second of boot.
+mkdir -p /var/log/beerus/certificates

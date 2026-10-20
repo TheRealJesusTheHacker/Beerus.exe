@@ -2,7 +2,7 @@
 
 **Sentinel Safeguard LLC — secure drive destruction, on a key.**
 
-[![Version](https://img.shields.io/badge/version-v0.4.0-2ee06f?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
+[![Version](https://img.shields.io/badge/version-v0.5.0-2ee06f?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
 [![Platform](https://img.shields.io/badge/platform-Windows%20app%20%2B%20Bootable%20USB-0078D6?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe)
 [![Python](https://img.shields.io/badge/Python-3-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-b03a2e?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/LICENSE)
@@ -98,8 +98,9 @@ and filler in one volume's free space.
 
 ## How it works
 
-1. **Flash** — this repo's image is written to a USB drive. That
-   USB is now a Destruct Key Pro.
+1. **Flash** — the image defined in this repo (built per
+   [docs/IMAGE-BUILD.md](docs/IMAGE-BUILD.md)) is written to a
+   USB drive. That USB is now a Destruct Key Pro.
 2. **Boot** — the key boots any machine straight into Beerus. The
    machine's own system never starts; nothing on its drives is
    touched until you say so.
@@ -177,7 +178,13 @@ later.
   announced scope.
 - **The boot key protects itself.** The Destruct Key Pro itself
   can **never** be a wipe target. Beerus excludes its own boot
-  device from the target list, always.
+  device from the target list, always — twice over. The running
+  system excludes the device it booted from, and the image
+  itself carries a second, independent protection: every key is
+  built with a baked-in volume label, and any disk carrying that
+  label is treated as a boot device even when none of its
+  partitions is mounted — so the key is protected on the days
+  the mount tree can't see it, too.
 - **No silent actions, ever.** Beerus does nothing to any drive
   without showing it. If it isn't on the screen, it isn't
   happening.
@@ -196,31 +203,38 @@ isn't delivered.
 
 ## Status
 
-**v0.4.0 — Beerus Portable: the app edition, with all three
-target modes.** The portable Windows app (`beerus_portable`)
-runs the same engine on a booted machine, with a Windows
-inventory seam (read-only PowerShell queries translated into
-the engine's own drive records) and the live-system refusal
-rules: the Windows system drive and the app's own drive are
-marked as boot devices, so the engine and gates refuse them at
-every layer. On top of whole-drive mode, `beerus.filewipe`
-adds file/folder wiping (overwrite + read-back verification
-*before* entry removal, fixed scope, per-item signed reporting)
-and free-space wiping, under an HMAC-bound consent authority
-that mirrors the drive gates. The release workflow builds
-`BeerusPortable.zip` on Windows — full test suite offscreen,
-one-folder PyInstaller build, a launch smoke test of the
-staged app, and SHA-256 checksums. 331 tests at this version,
-all against synthetic targets; nothing in the suite or in CI
-ever touches a real drive. The whole-drive executor still
-ships disarmed (both factors) in every build; destruction on
-real hardware is validated in Phase 5. The bootable image is
-Phase 3 — see the [roadmap](docs/ROADMAP.md).
+**v0.5.0 — the bootable image definition (Phase 3).** The full
+definition of the Destruct Key Pro image now lives in this
+repository under [`image/`](image/): the package list, the
+files baked into the image, the build hooks, and the build
+script that assembles it — the key is reproducible from source.
+The image boots straight into the Beerus boot console
+(`beerus.live`): the same gates, engine, verification, and
+certificate code as every other form, started by a boot service
+on the first console, with job documents kept in memory and the
+operator told plainly to copy them off before shutdown. This
+release also adds the image-level self-protection described
+above (`beerus.bootmedium`): the baked-in volume label and the
+live medium's mountpoints mark the key as untouchable through
+the inventory, independently of the mount tree — and the boot
+console is the one place the real-drive executor is armed,
+only after the image's build-time marker has been verified in
+the running system.
 
-One honest note on how this gets built: the bootable image is
-assembled on real hardware in the final phase. The repo versions
-everything that defines it — the wipe engine, the certificate
-generator, the UI, and the image definition itself.
+**What v0.5.0 is not:** a built image. Live-image builds run on
+a real build machine, not a development VM — the assembly and
+the sacrificial-drive field validation are Phase 5 hardware
+work, and no downloadable key image exists yet. The build
+itself is fully scripted and documented in
+[docs/IMAGE-BUILD.md](docs/IMAGE-BUILD.md). Beerus Portable
+(v0.4.0) remains the shipped, downloadable form: a no-install
+Windows app over the same engine, with whole-drive, file/folder,
+and free-space modes. This phase adds 322 tests (boot-medium,
+boot-console, and image-definition suites, including the
+independent audit's regression battery) — all against synthetic
+targets; nothing in the suite or in CI ever touches a real
+drive. See the [roadmap](docs/ROADMAP.md) for the full phase
+history.
 
 ## License
 

@@ -217,7 +217,346 @@ files, folders, and free space as well as whole drives.
   protected by the image design itself, backing the engine's
   self-exclusion with a second, independent layer.
 
-**Status: PLANNED.**
+**Status: COMPLETE — definition shipped in v0.5.0 (2026-10-20).**
+
+As built: the definition lives under `image/`. `build.sh` is
+the build: it stages (`stage_image.py` — a fresh copy of the
+`beerus` package from the checkout, plus the image marker
+generated from the package's own constants), configures a
+Debian bookworm live system as a hybrid ISO with the volume
+label `BEERUS_KEY`, and builds with live-build, checksumming
+the result. `config/` carries the rest of the definition: the
+package list (the interpreter, `lsblk`, `hdparm`, `nvme-cli`,
+the live system, a small operator toolkit — nothing that opens
+a network service), the files baked into the image (hostname;
+the `beerus-live` systemd service; the console launcher), and
+a build hook that fails the build if the staged package or the
+marker is missing, masks the ordinary first-console login, and
+keeps network services off. `docs/IMAGE-BUILD.md` is the full
+procedure: build-machine setup, the build, writing the image
+to a USB key raw (so the label survives), and the first-boot
+verification checklist. `check_definition.py` validates the
+definition without a build machine — required files, the
+build's volume label matching the protection code's label, the
+engine's tools in the package list, the service starting the
+launcher — and the test suite runs it.
+
+Boot flow: the `beerus-live` service owns tty1 and starts
+`beerus.live` — a terminal console over the *same*
+`GateAuthority`, `WipeEngine`, `WipeVerifier`, and certificate
+code as the portable app (no second gate implementation). It is
+also the boot-image entry point Phase 1 reserved: the only
+place the real-drive executor is armed, and only after the
+running system proves it is the live image (the build-time
+marker at `/etc/beerus/live-image.json` loads and validates —
+including naming this image's own volume label) and the session
+is root. The proofs are demanded by the arming function itself,
+not trusted to its caller — anything else gets a plain-language
+refusal and exit code 2 before an engine exists. The live
+verifier is wired exactly as the portable launcher wires it,
+firmware-status runner included, so an NVMe wipe on the key
+can be verified and certified the same way. Job documents
+are written to memory-backed storage in the live system, never
+to the key, and the console states at the start and after every
+document that they are gone at shutdown unless copied off; the
+Phase 4 UI inherits these flows and this documents behavior.
+
+The phase's independent audit (3 HIGH, 4 MEDIUM, 7 LOW) was
+fixed and re-audited: the proofs moved inside the arming
+function itself, the live verifier gained the firmware-status
+runner the portable launcher already wired (without it, no
+NVMe wipe on the key could ever be certified), menu input was
+locked to listed numbers only, the console's error seams were
+hardened to plain language throughout, identity strings are
+cleaned of control characters at parse time, the marker must
+name the image's own label with its documents directory
+constrained to memory, and the definition checker learned to
+parse rather than substring-match. Each fix carries a
+regression test. A final re-audit of the checker itself found
+indirect spellings — wrapped, prefixed, compounded, or merely
+stored commands — that could still satisfy it; the checker's
+command analysis was rebuilt to segment each command and
+identify it by the program that actually runs, with flags,
+exports, and the exec'd program matched by token. Every
+bypass from that round is rejected, each pinned by a
+regression test. A second re-audit of the rebuilt checker
+pushed further — heavier wrappers, a nested shell, bystander
+commands carrying the words as plain arguments, and a
+PYTHONPATH that merely mentioned the staged directory — so
+the hook check became semantic: the staged files count only
+where a command existence-tests them by their full paths,
+getty counts only where systemctl masks it, and paths are
+matched as whole components. Every bypass from every round
+is now rejected and pinned. A third re-audit pushed further
+still — tests of the wrong location, a look-alike unit name,
+proofs parked in a dead branch or discarded with
+``|| true``, and a launcher value shadowed, scoped away, or
+attached to the wrong command — so the hook proofs are
+anchored to the exact staged paths and the exact unit, a
+proof's failure must actually stop the hook, dead code counts
+for nothing, and the launcher is judged as ordered state in
+its own scope. A fourth re-audit pushed into the corners of
+that model — constant-false conditions spelled with negation
+or literal arithmetic, a ``set -e`` that arrived late or was
+switched back off, an exit offered from inside a subshell,
+and proofs parked in a function nobody calls — and the
+checker now evaluates constant conditions, tracks errexit in
+order, refuses subshell exits as enforcement, and counts a
+function body only when the function is actually called. A
+fifth re-audit probed the remaining corners — arithmetic
+conditions, ``case`` arms, functions invoked only from a
+subshell or only after the exec — and the checker now
+evaluates literal arithmetic conditions (and trusts no
+condition it cannot evaluate), tracks ``case`` arm
+reachability, and credits a function body only at a live
+top-level call site. A sixth re-audit found the same constant
+conditions guarding commands through ``&&``/``||`` instead of
+``if`` — the checker now judges a guarded command by its
+guard's evaluated value, in every file it checks. A seventh
+re-audit found the chain form of the same family — a skipped
+command's own value must not resurrect the chain — and the
+checker now propagates chain status the way the shell does:
+a command that never ran changes nothing. An eighth re-audit
+respelled the chain across a line break and into a pipeline —
+the checker now carries chains across operator-continued
+lines, and treats pipeline components as the subshell scope
+they are for enforcement. A ninth re-audit respelled the
+exemption itself: a test credited only through ``set -e``
+stays unenforced when it is a non-final ``&&`` member,
+backgrounded, or negated (including as the last component of
+a negated pipeline) — the checker now withholds the errexit
+credit in exactly those positions, credits a chain that
+genuinely reaches an ``|| exit``, and refuses a
+backgrounded exit as enforcement. A tenth re-audit found
+the same exemptions one segment further out — on a group's
+closing operator, at a function call site, inside a
+command substitution, in negation the segmenter had
+stripped — and the checker now propagates statement
+context instead of judging segments alone: the effective
+tail through group closes, statement-level negation,
+call-site errexit inheritance (errexit is judged where a
+body is called, not where it is defined), subshell and
+background persistence for the launcher, and a
+backgrounded build step no longer counting as the step
+done in order. An eleventh re-audit found the pattern one
+construct further out again — wrapper-prefixed calls that
+never invoke the function, ``set -e`` armed inside a piped
+or backgrounded brace group, non-final tests inside an
+exempt group, a paren group spread across lines, layered
+negation, empty ``for`` lists, and function redefinition —
+and the checker now recognises calls by their raw head
+(``eval`` excepted, which truly runs its argument),
+refuses state set in a child shell however it is grouped,
+judges a grouped test by its group's position, records
+multi-line group closes, evaluates empty ``for`` lists,
+and lets the last definition win; a backgrounded mask and
+a piped ``lb build`` stopped counting for the same
+unsequenced/discarded-status reasons as before. A twelfth
+re-audit closed the three holes that remained: brace-group
+tails inside function bodies (the group scan now looks
+inside bodies, bounded by the body's own brace), ``eval``
+credited without reading its argument (eval is now
+transparent — the evaluated word is the call, so
+``eval command …`` is a wrapper call and an eval that
+redefines a function voids the static body's proofs),
+and ``for`` lists the checker cannot resolve (a body
+proves only over a fully literal list). A thirteenth
+re-audit closed the extensions of those families: any
+``eval`` that is not a plain visible call — variable,
+substitution, escaped, wrapper-prefixed, or hidden in a
+called helper — now poisons function-body credit at its
+execution point (indirection is not graded); loop bodies
+in general prove only when iteration is guaranteed
+(``while`` on a constant-true condition, ``until`` on a
+constant-false one, ``for`` over at least one fully
+literal word — one literal is enough, as the shell
+guarantees that iteration). A fourteenth re-audit found
+the state the checker had never modelled at all —
+name-binding: a function named like a credited command
+(``test() { :; }``, ``systemctl() { :; }``, ``lb() { :; }``)
+silently replaces it, plain or eval-introduced, and an
+unresolvable eval can rewrite the variables a proof
+depends on. Credited commands are now void when their
+name was defined earlier in the script or an
+unresolvable eval precedes their use, and the
+launcher's ordered state goes unknown at an
+unresolvable eval until plain statements re-establish
+it. (A literal PATH assignment in the file is not a
+shadow: it is visible in the definition text, there
+to be read.) A fifteenth re-audit closed the
+name-binding perimeter and corrected that boundary:
+aliases (dash expands them in non-interactive
+scripts) and dot-sourcing (unseen text, like eval)
+now void credits exactly as definitions and evals
+do; a literal PATH assignment whose value has a
+relative or empty component voids external-command
+credits too — it can point into the tree at a planted
+stub, so the definition would be supplying its own
+proof commands (all-absolute values remain
+environment trust); the unit file is read with
+systemd's own semantics (single-value settings are
+last-wins, list settings reset on an empty
+assignment, a second ExecStart is a refusal); the
+flags that matter are read from the LAST lb config;
+the colour scan strips quotes first (the shell joins
+quoted fragments); and the hostname file's content
+and the staging script's two jobs are checked, not
+just their presence. A sixteenth re-audit found the
+poison policy hiding its own evidence: a helper whose
+body runs unseen text is marked dead (its proofs are
+void), and the guards had been skipping dead segments
+— so unseen text inside a called helper executed
+invisibly at the call. Guards now ask where unseen
+text EXECUTES (top level: its own position; in a
+body: its call's), never whether its segment is dead.
+The same round closed the taint riding on the
+credited command itself (command-prefix and env
+PATH assignments), gave the launcher's exec the PATH
+coverage it lacked (its python3 resolves in the
+image's own root directory), refused unseen text
+running after the last check (it can undo the
+checks), taught the colour scan the expansion and
+continuation spellings, read the staging script's
+jobs on code lines only, and corrected two of the
+checker's own models: lb config merges (a flag's
+effective value is the last value stated for it),
+and an empty ExecStart= resets the list, so one real
+entry after a reset is valid. A seventeenth re-audit
+walked the call graph: unseen text two helpers deep,
+a helper called as a condition or a negation, and a
+dispatch through a variable all executed invisibly —
+execution points are now computed transitively over
+every syntactic call, and an expansion-headed command
+is an execution point on its own. The launcher's
+PATH is unknown after unseen text, exactly like its
+PYTHONPATH, until a literal statement re-establishes
+it (the round-24 decision to trust it did not hold:
+a planted python3 ran). The env PATH scan walks the
+whole wrapper chain (env's options, sudo, timeout);
+command-prefix PATH assignments no longer taint
+later credits (they never persist — their own
+command is judged separately, last value in force);
+and the colour scan joins Python string-literal
+seams in .py files (the checker does not scan its
+own source — it defines the needle in pieces, on
+purpose). An eighteenth re-audit composed the
+pieces: a plain-call ``eval`` is now an edge in the
+execution graph (unseen text inside an eval-called
+helper had escaped it); ``unset`` is modelled (an
+unset PATH after startup leaves no search path at
+all and voids external credits until re-established;
+an unset PYTHONPATH in the launcher is simply
+gone); a bare ``exec`` terminates a script exactly
+like ``exit``; the colour scan reads join() lists
+and chr() runs in Python files; and defining an
+unseen-bodied helper — never called — no longer
+voids the launcher on its own. A nineteenth
+re-audit composed the last two pieces: an eval
+behind a wrapper (``command eval sneak``) is an
+execution edge again — the name is read through
+the wrapper, as the eval detector walks — and
+termination became an execution-point question
+like unseen text: an exec terminates at its own
+position when it provably runs in the main shell
+(chained on a proven guard, inside a taken branch,
+or at a called helper's call point), while an exec
+in a subshell or a pipeline, and an exec with no
+command at all (redirections only), terminate
+nothing. The colour scan's join reading covers
+tuples, its chr reading hex codes and comment
+seams. A twentieth re-audit composed the graph
+itself: termination now runs through the same
+transitive execution graph as unseen text — an
+exec inside a helper called through eval, as a
+condition, under negation, or two helpers deep
+terminates at the outer call — and ``exit`` runs
+through it alongside ``exec`` (it had only the
+bare-spelling rule); nested evals unwrap
+(``eval eval sneak`` invokes sneak); and a
+terminator counts only where it is PROVEN reached
+on every path, so the guard blocks behind
+unevaluable conditions — the shape the shipped
+scripts use — keep the code after them credited.
+The colour scan reads chr() runs interleaved
+with string literals and join arguments with a
+balanced scan (a star-unpacked nested list no
+longer ends the reading early). Two older loop
+controls were corrected in the same round: an
+unconditional ``exit`` they carried in a loop
+body genuinely ends the script before the proofs
+after the loop, so their guards are now the
+``|| exit`` form shell semantics requires. A
+twenty-first re-audit closed the last two narrow
+holes: a terminator (or a proof) sharing a segment
+with ``else`` was judged with the then branch's
+frame state — inverted both ways — and the
+segmenter and the termination replay now switch
+the frame before judging an else segment; and the
+colour scan absorbs the literal before the first
+chr() code, completing its reading of the
+concatenated value. A twenty-second re-audit
+found the same branch-switch disease in the one
+segment the else fix had not covered: an ``elif``
+segment carries its condition command in itself
+and was stamped with the previous branch's state,
+so a terminator or unseen text AS an elif
+condition escaped both models — the elif segment
+is now judged in the state it executes in, in the
+segmenter and the termination replay alike; and
+the colour scan reads a literal join() call as
+the literal it assembles, so concatenation around
+a join result combines with it like any other
+literal. A twenty-third re-audit closed the
+colour family outright and found the branch-
+switch disease's last nesting slot: a nested
+``if`` riding the ``then``/``do`` segment opened
+no frame at all, so its inner elif/else slots
+were judged against the outer frame — the riding
+opener now opens its frame in the segmenter and
+in the termination replay, and the dead-branch
+mirror (a riding chain inside a branch that
+never runs, wrongly refused) is fixed by the
+same change. A twenty-fourth re-audit granted
+the unseen-text and colour families closed and
+found termination's last general gap: branch
+COVER — a chain whose every reachable branch
+terminates and which cannot fall through ends
+every path, but each terminator was individually
+unproven and the branches were never joined. A
+branch-cover pass now joins them at ``fi``
+(direct terminators, terminating helpers called
+in the branches, nested covering chains, and
+bodies that cover internally all compose); and
+the segmenter's bare-terminator latch honours
+the unproven stamp on case arms, as the model
+always stated.
+
+Self-protection, the second layer (`beerus/bootmedium.py`):
+inventory now marks a disk as the boot device when any of its
+partitions carries the image's baked-in volume label — labels
+are read from `lsblk` with nothing mounted, which closes the
+Phase 1 residual for the live key's own unmounted EFI
+partition — or sits at a live-boot medium mountpoint
+(`/run/live/medium` and friends). The protection arrives
+through the existing `is_boot` flag, so the engine's and
+gates' refusals apply unchanged; marking is one-directional, so
+a cloned key carrying the label is protected too.
+
+Honest residuals, by design: **no image has been built from
+this definition yet** — live-build does not run on the
+development VM (filesystem/chroot limits), so the first build,
+the first boot, and every hardware behavior above are Phase 5
+validation, and the docs say so wherever they describe them.
+The label layer trusts the label: a non-key drive deliberately
+labelled `BEERUS_KEY` would be over-protected (refused), never
+under-protected — the safe direction, and the stated rule.
+Booting the image's contents through an exotic path that
+neither mounts a medium nor presents a labelled filesystem
+(a third-party multiboot extractor) is outside the supported
+flash procedure, which is a raw write of the built image; the
+mount-based first layer still applies wherever a medium mount
+exists. The Phase 4 boot UI is the remaining consumer: it
+plugs into `beerus.live`'s flows rather than replacing them.
 
 ## Phase 4 — The boot-environment UI
 

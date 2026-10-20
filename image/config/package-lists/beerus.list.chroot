@@ -1,0 +1,29 @@
+# Destruct Key Pro — packages installed in the live image.
+#
+# The Beerus console is pure Python on the standard library, so
+# this list is short on purpose: the interpreter, the drive tools
+# the engine runs, the live system itself, and a small operator
+# toolkit for the spare consoles (copying job documents off the
+# machine, inspecting media). Nothing here opens a network
+# service; the destruction environment needs no network at all.
+
+# The live system
+live-boot
+live-config
+systemd
+systemd-sysv
+
+# Beerus itself
+python3
+
+# The tools the engine runs: drive listing, ATA Secure Erase,
+# NVMe Sanitize / Format / sanitize status
+util-linux
+hdparm
+nvme-cli
+
+# Operator toolkit for the spare consoles (copying job documents
+# off: mount + cp for a USB device, scp for a network drop)
+coreutils
+less
+openssh-client
