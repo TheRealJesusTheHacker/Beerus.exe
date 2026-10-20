@@ -88,9 +88,11 @@ WHERE THINGS ARE WRITTEN (honest list)
 - Inside this folder, and nowhere else of Beerus's own:
   a "certificates" folder is created beside Beerus.exe and
   holds the documents Beerus issues - certificates of
-  destruction for whole-drive wipes, and the completion
-  reports for file, folder, and free-space wipes. They are
-  your job records; deleting the folder deletes them.
+  destruction for whole-drive wipes, and, in a "reports"
+  subfolder of it, the completion reports for file, folder,
+  and free-space wipes (reports are not certificates, and
+  they are not filed as if they were). They are your job
+  records; deleting the folder deletes them.
 - Nothing is installed and nothing is registered: no Windows
   services, no registry entries, no start-menu items. Deleting
   this folder removes the program.
