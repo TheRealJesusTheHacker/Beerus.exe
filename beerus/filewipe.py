@@ -24,6 +24,12 @@ a linked parent folder cannot smuggle a protected file in under
 an innocent name. A file that has more than one name (a
 hardlink) is refused at scope build — wiping one name would
 destroy the data at its other names, which were never listed.
+The identity binding is the file's stat record, not a hash of
+its contents: a rewrite that also restores the exact
+modification stamp (or lands inside one coarse timestamp tick,
+as on a FAT volume) is not detectable. That bound is stated
+deliberately — it is the same identity standard the drive
+gates use — rather than implied away.
 
 Consent mirrors the drive gates: a scope acknowledgment over the
 exact listing, an exact typed phrase naming the count, and a
@@ -351,6 +357,21 @@ def build_file_scope(paths, *, protected_roots=None) -> FileScope:
                 "build the list again."
             )
 
+    def add_link(path: str) -> None:
+        # A link entry is bound to the link's own identity, so
+        # a swap after confirmation is detectable (re-audit N1).
+        st = os.lstat(path)
+        add_entry(
+            FileScopeEntry(
+                path=path,
+                size_bytes=0,
+                kind="link",
+                dev=st.st_dev,
+                ino=st.st_ino,
+                mtime_ns=st.st_mtime_ns,
+            )
+        )
+
     def add_file(path: str) -> None:
         refuse_if_protected(path)
         st = os.lstat(path)
@@ -388,7 +409,7 @@ def build_file_scope(paths, *, protected_roots=None) -> FileScope:
         refuse_if_protected(path)
         roots.append(path)
         if os.path.islink(path):
-            add_entry(FileScopeEntry(path, 0, "link"))
+            add_link(path)
             continue
         if os.path.isfile(path):
             add_file(path)
@@ -403,7 +424,7 @@ def build_file_scope(paths, *, protected_roots=None) -> FileScope:
                 for name in sorted(dirnames):
                     full = os.path.join(dirpath, name)
                     if os.path.islink(full):
-                        add_entry(FileScopeEntry(full, 0, "link"))
+                        add_link(full)
                     else:
                         real_dirs.append(name)
                         directories.add(full)
@@ -411,7 +432,7 @@ def build_file_scope(paths, *, protected_roots=None) -> FileScope:
                 for name in sorted(filenames):
                     full = os.path.join(dirpath, name)
                     if os.path.islink(full):
-                        add_entry(FileScopeEntry(full, 0, "link"))
+                        add_link(full)
                     elif os.path.isfile(full):
                         add_file(full)
                     else:
@@ -589,8 +610,14 @@ class FileGateAuthority:
         payload = f"{scope_hash}|{session_id}|{expires_at!r}"
         return hmac.new(self._key, payload.encode(), hashlib.sha256).hexdigest()
 
-    def _mint(self, scope, session_id: str) -> FileConfirmationToken:
-        expires_at = time.time() + self._ttl
+    def _mint(
+        self, scope, session_id: str, *, deadline: float
+    ) -> FileConfirmationToken:
+        # The token dies at the SESSION deadline, exactly as the
+        # drive gates' tokens do — not a fresh TTL from mint
+        # time, which would quietly double the usable window
+        # (re-audit finding M4).
+        expires_at = deadline
         return FileConfirmationToken(
             scope_hash=scope.scope_hash,
             session_id=session_id,
@@ -677,7 +704,9 @@ class FileGateSession:
                 "Start again when you are ready."
             )
         self.stage = FileSessionStage.COMPLETED
-        return self._authority._mint(self._scope, self.session_id)
+        return self._authority._mint(
+            self._scope, self.session_id, deadline=self._deadline
+        )
 
 
 # --------------------------------------------------------------------------
@@ -741,6 +770,9 @@ class FreeSpaceResult:
     started_at: float
     completed_at: float
     mac: str = field(repr=False)
+    # Filler items this run could not remove afterwards —
+    # counted and reported, never silently left (re-audit N4).
+    leftovers: int = 0
 
 
 def _outcome_lines(result: FileWipeResult) -> tuple[str, ...]:
@@ -757,7 +789,9 @@ def _outcome_lines(result: FileWipeResult) -> tuple[str, ...]:
     )
 
 
-def verify_file_result_authentic(result: FileWipeResult) -> bool:
+def verify_file_result_authentic(result) -> bool:
+    if not isinstance(result, FileWipeResult):
+        return False
     expected = _canonical_result(
         "file",
         result.scope_hash,
@@ -768,11 +802,13 @@ def verify_file_result_authentic(result: FileWipeResult) -> bool:
     return hmac.compare_digest(expected, result.mac)
 
 
-def verify_free_space_result_authentic(result: FreeSpaceResult) -> bool:
+def verify_free_space_result_authentic(result) -> bool:
+    if not isinstance(result, FreeSpaceResult):
+        return False
     lines = (
         f"{result.volume_root}|{result.ok}|{result.bytes_filled}"
         f"|{result.passes_completed}|{result.bytes_checked}"
-        f"|{result.detail}",
+        f"|{result.detail}|{result.leftovers}",
     )
     expected = _canonical_result(
         "freespace",
@@ -1104,12 +1140,54 @@ class FileWipeEngine:
 
     def _remove_link_entry(self, entry: FileScopeEntry) -> FileItemOutcome:
         # A link carries no data of its own; removing it (last,
-        # like every entry) cannot touch its target.
+        # like every entry) cannot touch its target. But the
+        # entry is re-verified first, exactly like a file: if
+        # the link was swapped after confirmation — above all
+        # for a regular file, whose data must NEVER be merely
+        # unlinked — the entry is left alone (re-audit N1).
+        path = entry.path
         try:
-            os.unlink(entry.path)
-            _fsync_directory(os.path.dirname(entry.path) or ".")
+            st = os.lstat(path)
+        except FileNotFoundError:
             return FileItemOutcome(
-                entry.path,
+                path,
+                FAILED,
+                "The link was gone before Beerus could remove "
+                "it (something else removed it first). Its "
+                "target was not touched.",
+                kind="link",
+            )
+        except OSError:
+            return FileItemOutcome(
+                path,
+                LINK_LEFT,
+                "This link could not be checked, so it was left "
+                "in place. Links are never followed; its target "
+                "was not touched.",
+                kind="link",
+            )
+        if not stat.S_ISLNK(st.st_mode):
+            return FileItemOutcome(
+                path, FAILED, _CHANGED_DETAIL, kind="link"
+            )
+        if (st.st_dev, st.st_ino, st.st_mtime_ns) != (
+            entry.dev,
+            entry.ino,
+            entry.mtime_ns,
+        ):
+            return FileItemOutcome(
+                path,
+                LINK_LEFT,
+                "This link changed after the scope was "
+                "confirmed, so it was left in place. Links are "
+                "never followed; its target was not touched.",
+                kind="link",
+            )
+        try:
+            os.unlink(path)
+            _fsync_directory(os.path.dirname(path) or ".")
+            return FileItemOutcome(
+                path,
                 LINK_REMOVED,
                 "This was a link. Links are never followed — the "
                 "link itself was removed and its target was not "
@@ -1118,7 +1196,7 @@ class FileWipeEngine:
             )
         except OSError:
             return FileItemOutcome(
-                entry.path,
+                path,
                 LINK_LEFT,
                 "This was a link. Links are never followed, so "
                 "nothing was wiped through it; the link itself "
@@ -1220,6 +1298,7 @@ class FreeSpaceEngine:
             ) from None
         ok = False
         bytes_checked_value = 0
+        leftovers_count = 0
         try:
             for index, spec in enumerate(OVERWRITE_PASSES):
                 if index == 0:
@@ -1265,21 +1344,33 @@ class FreeSpaceEngine:
                 "before the failure kept its overwrites."
             )
         finally:
-            leftovers = 0
+            own_left = 0
             for filler in fillers:
                 try:
                     os.unlink(filler)
                 except OSError:
-                    leftovers += 1
+                    own_left += 1
             try:
                 os.rmdir(filler_dir)
             except OSError:
-                leftovers += 1 if os.path.isdir(filler_dir) else 0
-            if leftovers:
+                pass
+            # The folder itself counts as left behind when our
+            # own fillers are all gone but it still stands —
+            # something foreign is holding it (re-audit N4).
+            dir_left = (
+                1
+                if own_left == 0 and os.path.isdir(filler_dir)
+                else 0
+            )
+            leftovers_count = own_left + dir_left
+            if leftovers_count:
                 detail_notes.append(
-                    "Some filler files could not be removed — "
-                    f"they are blank overwrite data inside "
-                    f"“{filler_dir}”; you can delete that folder."
+                    "Some filler files could not be removed "
+                    f"from “{filler_dir}”. Anything left in "
+                    "that folder is either blank overwrite data "
+                    "Beerus wrote, or a file another program "
+                    "placed there during the run — check the "
+                    "folder before deleting it."
                 )
         detail = (
             " ".join(detail_notes)
@@ -1298,12 +1389,13 @@ class FreeSpaceEngine:
             detail=detail,
             started_at=started,
             completed_at=completed,
+            leftovers=leftovers_count,
             mac="",
         )
         lines = (
             f"{draft.volume_root}|{draft.ok}|{draft.bytes_filled}"
             f"|{draft.passes_completed}|{draft.bytes_checked}"
-            f"|{draft.detail}",
+            f"|{draft.detail}|{draft.leftovers}",
         )
         mac = _canonical_result(
             "freespace",
@@ -1577,6 +1669,12 @@ def build_free_space_report(
         f"{_human_size(result.bytes_checked)} (sampled)",
         result.detail,
     ]
+    if result.leftovers:
+        summary.append(
+            f"Filler items left behind: {result.leftovers} — "
+            "see the note above; check the filler folder "
+            "before deleting it."
+        )
     disclosures = [OTHER_COPIES_DISCLOSURE]
     if ssd:
         disclosures.insert(0, SSD_FREE_SPACE_DISCLOSURE)
