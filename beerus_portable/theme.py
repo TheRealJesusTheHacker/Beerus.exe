@@ -20,7 +20,9 @@ GREEN_DARK_TEXT = "#04150a"  # text on the green itself
 RED = "#b03a2e"  # rare accent only: the final erase action
 RED_TEXT = "#ffffff"  # text on the red accent
 INPUT_BG = "#0a0f0a"
-DISABLED_TEXT = "#5f7263"
+# Disabled controls are exempt from WCAG contrast rules, but the
+# house bar is a readable render: this still clears 4.5:1.
+DISABLED_TEXT = "#7d927f"
 
 # Every (foreground, background) pairing the stylesheet renders
 # text in. The palette test asserts each of these is >= 4.5:1.
@@ -34,6 +36,8 @@ TEXT_PAIRS = (
     (GREEN, PANEL),
     (GREEN_DARK_TEXT, GREEN),
     (RED_TEXT, RED),
+    (DISABLED_TEXT, PANEL),
+    (DISABLED_TEXT, BG),
 )
 
 
@@ -177,5 +181,33 @@ QProgressBar {{
 QProgressBar::chunk {{
     background-color: {GREEN};
     border-radius: 5px;
+}}
+QRadioButton {{
+    color: {TEXT};
+    spacing: 8px;
+    padding: 6px 4px;
+}}
+QRadioButton::indicator {{
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    border: 2px solid {TEXT_FAINT};
+    background-color: {INPUT_BG};
+}}
+QRadioButton::indicator:checked {{
+    border-color: {GREEN};
+    background-color: {GREEN};
+}}
+QComboBox {{
+    background-color: {INPUT_BG};
+    border: 1px solid {PANEL_BORDER};
+    border-radius: 6px;
+    padding: 8px;
+    color: {TEXT};
+}}
+QComboBox QAbstractItemView {{
+    background-color: {PANEL};
+    color: {TEXT};
+    selection-background-color: {PANEL_BORDER};
 }}
 """
