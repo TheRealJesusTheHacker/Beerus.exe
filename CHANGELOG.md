@@ -41,7 +41,7 @@ Beerus Portable — the portable app edition, and file-level wiping.
 - **Release:** tag-gated Windows workflow builds
   `BeerusPortable.zip` (one-folder layout, no installer) with
   the full suite offscreen, a staged-app launch smoke test,
-  and SHA-256 checksums. 309 tests, all against synthetic
+  and SHA-256 checksums. 310 tests, all against synthetic
   targets.
 
 ## [0.3.0] — 2026-10-20
