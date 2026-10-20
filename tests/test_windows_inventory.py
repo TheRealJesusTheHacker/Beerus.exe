@@ -75,6 +75,14 @@ def test_system_and_own_drives_are_marked_boot():
     assert context.own_fingerprints == {own.fingerprint}
 
 
+def test_volume_letters_map_letters_to_drives():
+    drives, context = three_disk_inventory()
+    system, own, _target = drives
+    mapping = dict(context.volume_letters)
+    assert mapping["C"] == system.fingerprint
+    assert mapping["E"] == own.fingerprint
+
+
 def test_device_path_and_classification():
     drives, _ = three_disk_inventory()
     system, own, target = drives
