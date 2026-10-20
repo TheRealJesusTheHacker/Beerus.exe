@@ -2,7 +2,7 @@
 
 **Sentinel Safeguard LLC — secure drive destruction, on a key.**
 
-[![Version](https://img.shields.io/badge/version-v0.1.0-2ee06f?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
+[![Version](https://img.shields.io/badge/version-v0.2.0-2ee06f?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
 [![Platform](https://img.shields.io/badge/platform-Bootable%20USB-0078D6?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe)
 [![Python](https://img.shields.io/badge/Python-3-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-b03a2e?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/LICENSE)
@@ -119,10 +119,19 @@ isn't delivered.
 
 ## Status
 
-**v0.1.0 — project kickoff.** This repository currently holds the
-project scaffold: the plan, the package stub, and the license. The
-build runs in phases — wipe engine and consent gates first, the
-bootable image after — see the [roadmap](docs/ROADMAP.md).
+**v0.2.0 — Phase 1 complete: the wipe engine and its consent
+gates are built.** The `beerus` package now contains the drive
+inventory (model, serial, size, interface, WWN for every
+attached drive), NIST 800-88 method selection, the consent-gate
+framework (typed-serial confirmation, full scope acknowledgment,
+an exact final confirmation phrase, single-use expiring tokens),
+and the engine that refuses to run without all of it — and
+refuses the boot drive and any drive it cannot identify,
+always. The real-drive executor ships disarmed; arming belongs
+to the boot-image entry point in a later phase, and destruction
+on real hardware is validated in Phase 5. 188 tests, all against
+synthetic targets. Verification and certificates are Phase 2;
+the bootable image is Phase 3 — see the [roadmap](docs/ROADMAP.md).
 
 One honest note on how this gets built: the bootable image is
 assembled on real hardware in the final phase. The repo versions
