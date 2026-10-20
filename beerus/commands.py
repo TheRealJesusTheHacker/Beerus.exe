@@ -7,6 +7,7 @@ an argv list; the executor decides whether (and how) to run it.
 from __future__ import annotations
 
 import os
+import posixpath
 
 # Temporary ATA security password, set only so the erase command can
 # run; standard practice for Secure Erase.
@@ -24,7 +25,12 @@ def _validate_device_path(device_path) -> str:
         raise ValueError("Device path is too short to be a device.")
     if "\x00" in device_path:
         raise ValueError("Device path must not contain a null byte.")
-    if os.path.normpath(device_path) != device_path:
+    # The paths validated here are POSIX /dev paths by
+    # definition (these builders produce Linux commands), so
+    # the cleanliness check uses posixpath on every host —
+    # os.path.normpath on a Windows host would rewrite the
+    # separators and reject every legitimate device path.
+    if posixpath.normpath(device_path) != device_path:
         raise ValueError("Device path must be a clean, direct device path.")
     if any(component in (".", "..") for component in device_path.split("/")):
         raise ValueError("Device path must be a clean, direct device path.")
