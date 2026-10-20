@@ -1,0 +1,21 @@
+# CI dependency pins for the Windows portable release build.
+#
+# EXACT versions on purpose: the release pipeline must build with
+# the same libraries every time, never with whatever happens to be
+# newest on release day. These are the same pins the Argus and
+# Charon release pipelines use (verified on PyPI 2026-10-19); bump
+# deliberately, in review, never by loosening a pin.
+#
+# Beerus imports no pywin32 (its Windows inventory reads through
+# PowerShell's storage cmdlets over a subprocess seam), so the
+# pywin32 pins Charon needs are not here — the list is what this
+# build actually uses, nothing more.
+PySide6==6.12.0
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.8
+pefile==2024.8.26
+altgraph==0.17.5
+pywin32-ctypes==0.2.3
+packaging==25.0
+setuptools==80.10.2
+pytest==9.1.1
