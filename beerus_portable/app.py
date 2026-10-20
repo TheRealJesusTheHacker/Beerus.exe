@@ -572,8 +572,20 @@ class MainWindow(QMainWindow):
 
     def _update_start_enabled(self):
         operator = bool(self.operator_edit.text().strip())
-        drive = self.selected_drive()
-        self.start_button.setEnabled(drive is not None and operator)
+        # The Start button's own state must reflect the greyed
+        # assessment, not merely the presence of a selection:
+        # an ineligible (disabled) row can be landed on
+        # programmatically even though a mouse user can't pick
+        # it, and the button must stay off for it (re-audit N3).
+        # The gate still refuses independently — this is the
+        # presentation agreeing with the protection.
+        item = self.drive_list.currentItem()
+        selectable = (
+            item is not None
+            and bool(item.flags() & Qt.ItemFlag.ItemIsEnabled)
+            and item.data(Qt.ItemDataRole.UserRole) is not None
+        )
+        self.start_button.setEnabled(selectable and operator)
         self.start_files_button.setEnabled(
             operator and bool(self._selected_paths)
         )
@@ -1279,8 +1291,13 @@ class MainWindow(QMainWindow):
             f"Free space — {result.volume_root}"
         )
         self.again_button.setText("Wipe free space again")
-        if result.ok:
+        if result.ok and result.leftovers == 0:
             self._set_verdict("FREE-SPACE WIPE COMPLETE", True)
+        elif result.ok:
+            self._set_verdict(
+                "FREE-SPACE WIPE COMPLETE — FILLER LEFT BEHIND",
+                False,
+            )
         else:
             self._set_verdict(
                 "FREE-SPACE WIPE COMPLETE — NOT FULLY VERIFIED",
@@ -1291,6 +1308,12 @@ class MainWindow(QMainWindow):
             f"Passes completed: {result.passes_completed}",
             f"Filler data read back and checked: "
             f"{human_size(result.bytes_checked)} (sampled)",
+        ]
+        if result.leftovers:
+            lines.append(
+                f"Filler items left behind: {result.leftovers}"
+            )
+        lines += [
             "",
             result.detail,
         ]
