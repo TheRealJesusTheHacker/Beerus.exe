@@ -496,3 +496,29 @@ def test_free_space_leftover_verdict_state(
     )
     assert "left behind" in window.verification_view.toPlainText()
     assert live.read_bytes() == b"important live data" * 100
+
+
+# ------------------------------------------------------- kit-hunt regressions
+# Findings from the kit-wide Windows bug hunt (v0.5.1).
+
+
+def test_gate_buttons_are_noops_without_a_live_session(
+    qapp, device_file, documents_dir
+):
+    # Pre-fix: a queued second click (double-click) landing
+    # after the first click had finished or cancelled the
+    # gates dereferenced a cleared session — AttributeError
+    # inside a Qt slot. Every gate button must be a clean
+    # no-op when no session is live.
+    window = verified_window(device_file, documents_dir)
+    assert window._session is None
+    assert window._file_session is None
+    window._confirm_identity()
+    window._acknowledge_scope()
+    window._final_confirmation()
+    window._flow = "files"
+    window._acknowledge_scope()
+    window._final_confirmation()
+    # Still on the start page, nothing started, nothing wiped.
+    assert window.stack.currentWidget() is window.page_drives
+    assert device_file.read_bytes() == b"\xaa" * SIZE

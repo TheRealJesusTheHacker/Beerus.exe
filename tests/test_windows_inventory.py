@@ -241,3 +241,91 @@ def test_enumerator_failure_is_a_plain_error():
     )
     with pytest.raises(BeerusError):
         enumerator()
+
+
+# ------------------------------------------------------- kit-hunt regressions
+# Findings from the kit-wide Windows bug hunt (v0.5.1): each test
+# below fails on the pre-fix code for the stated reason.
+
+
+def test_parse_cleans_control_characters_from_identity():
+    # Pre-fix: the Windows parser only stripped padding, unlike
+    # the lsblk parser — a model/serial carrying newlines kept
+    # them, forging extra lines in the drive list and scope
+    # text, and a serial with a control character could never
+    # be typed back into the serial gate.
+    disks = disks_json(
+        physical_disk(
+            0,
+            model="Evil\nFAKE DRIVE — Ready to wipe",
+            serial="ABC\r\nINJECTED",
+        )
+    )
+    parts = parts_json(partition(0, "C"))
+    drives, _context = parse_windows_inventory(
+        disks, parts, system_letter="C", app_letter="Z"
+    )
+    drive = drives[0]
+    assert drive.model == "EvilFAKE DRIVE — Ready to wipe"
+    assert drive.serial == "ABCINJECTED"
+    assert not any(
+        ord(ch) < 32 for ch in drive.model + drive.serial + drive.interface
+    )
+
+
+def test_default_runner_bounds_powershell_and_decodes_utf8(monkeypatch):
+    # Pre-fix: subprocess.run was called with no timeout and no
+    # explicit encoding — a stalled Get-PhysicalDisk hung the
+    # app before its window appeared, and the decode used the
+    # machine's locale code page.
+    import subprocess
+
+    import beerus_portable.windows_inventory as wi
+
+    seen = {}
+
+    class _Done:
+        returncode = 0
+        stdout = "[]"
+
+    def fake_run(argv, **kwargs):
+        seen.update(kwargs)
+        return _Done()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert wi._default_runner(DISKS_SCRIPT) == "[]"
+    assert seen.get("timeout") == wi.POWERSHELL_TIMEOUT_SECONDS
+    assert seen.get("encoding") == "utf-8"
+    assert seen.get("errors") == "replace"
+    # The scripts themselves ask PowerShell to speak UTF-8.
+    assert "UTF8" in DISKS_SCRIPT
+    assert "UTF8" in PARTITIONS_SCRIPT
+
+
+def test_default_runner_timeout_is_a_plain_beerus_error(monkeypatch):
+    import subprocess
+
+    import beerus_portable.windows_inventory as wi
+
+    def slow_run(argv, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="powershell", timeout=1)
+
+    monkeypatch.setattr(subprocess, "run", slow_run)
+    with pytest.raises(BeerusError) as excinfo:
+        wi._default_runner(DISKS_SCRIPT)
+    assert "too long" in str(excinfo.value)
+
+
+def test_default_runner_missing_powershell_is_a_plain_beerus_error(
+    monkeypatch,
+):
+    import subprocess
+
+    import beerus_portable.windows_inventory as wi
+
+    def missing_run(argv, **kwargs):
+        raise FileNotFoundError("powershell not found")
+
+    monkeypatch.setattr(subprocess, "run", missing_run)
+    with pytest.raises(BeerusError):
+        wi._default_runner(DISKS_SCRIPT)

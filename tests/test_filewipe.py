@@ -734,3 +734,57 @@ def test_free_space_report(tmp_path):
     joined = "\n".join(report.summary_lines)
     assert "COMPLETED" in joined
     assert "Free space filled" in joined
+
+
+# ------------------------------------------------------- kit-hunt regressions
+# Findings from the kit-wide Windows bug hunt (v0.5.1).
+
+
+def test_scope_counts_distinct_files_that_have_no_inode(tmp_path):
+    # Pre-fix: dedupe keyed files on (dev, inode) alone, so on a
+    # filesystem that reports inode 0 for every file (FAT/exFAT
+    # volumes have no file index to give), a folder of distinct
+    # files collapsed into ONE scope entry — the announced
+    # count and byte total were a fraction of what the operator
+    # picked, and the rest would silently not be wiped.
+    import os as _os
+
+    for name in ("a.txt", "b.txt", "c.txt"):
+        (tmp_path / name).write_bytes(b"x" * 100)
+    real_lstat = _os.lstat
+
+    def inoless_lstat(path, *args, **kwargs):
+        st = real_lstat(path, *args, **kwargs)
+        return _os.stat_result(
+            (
+                st.st_mode,
+                0,
+                st.st_dev,
+                st.st_nlink,
+                st.st_uid,
+                st.st_gid,
+                st.st_size,
+                int(st.st_atime),
+                int(st.st_mtime),
+                int(st.st_ctime),
+            )
+        )
+
+    import unittest.mock as _mock
+
+    with _mock.patch.object(_os, "lstat", inoless_lstat):
+        scope = build_file_scope([str(tmp_path)], protected_roots=())
+    assert scope.total_files == 3
+    assert scope.total_bytes == 300
+
+
+def test_free_space_scope_refuses_when_margin_leaves_nothing(tmp_path):
+    # Pre-fix: a volume with less free space than the safety
+    # margin produced a confirmable scope whose fill was zero
+    # bytes — and the engine then reported a fully verified
+    # COMPLETE over those zero bytes.
+    with pytest.raises(FileScopeError) as excinfo:
+        build_free_space_scope(
+            tmp_path, free_bytes_probe=lambda p: 8 * MIB
+        )
+    assert "Nothing was wiped" in str(excinfo.value)

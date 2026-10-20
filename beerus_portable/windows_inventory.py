@@ -35,7 +35,7 @@ import subprocess
 from dataclasses import dataclass
 
 from beerus.errors import BeerusError
-from beerus.inventory import Drive, DriveClass
+from beerus.inventory import Drive, DriveClass, _clean_identity_text
 
 SYSTEM_DRIVE_MESSAGE = (
     "This is the drive Windows is running from. "
@@ -80,31 +80,65 @@ class PortableDriveContext:
 # say which disk Windows lives on and which disk this app was started from).
 # ---------------------------------------------------------------------------
 
-DISKS_SCRIPT = (
+# PowerShell is told to speak UTF-8 before anything else runs:
+# Windows PowerShell otherwise answers in the machine's console
+# code page, and a drive model or serial containing characters
+# outside that page arrives mangled — or fails to decode at all.
+_OUTPUT_ENCODING_PREFIX = (
+    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+    "$OutputEncoding = [System.Text.Encoding]::UTF8; "
+)
+
+DISKS_SCRIPT = _OUTPUT_ENCODING_PREFIX + (
     "Get-PhysicalDisk | "
     "Select-Object DeviceId, FriendlyName, SerialNumber, Size, "
     "BusType, MediaType | ConvertTo-Json -Compress"
 )
 
-PARTITIONS_SCRIPT = (
+PARTITIONS_SCRIPT = _OUTPUT_ENCODING_PREFIX + (
     "Get-Partition | "
     "Select-Object DiskNumber, DriveLetter, Type | "
     "ConvertTo-Json -Compress"
 )
 
+# A hard ceiling on every PowerShell call. Get-PhysicalDisk is
+# known to stall for a very long time on machines with a failing
+# or half-asleep disk; without a ceiling the window would hang
+# before it ever appears, with no message and no way out short
+# of killing the app (kit-hunt finding: no timeout on any
+# shell-out in this module).
+POWERSHELL_TIMEOUT_SECONDS = 60
+
 
 def _default_runner(script: str) -> str:
-    completed = subprocess.run(
-        [
-            "powershell",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            script,
-        ],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        completed = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                script,
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=POWERSHELL_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        raise BeerusError(
+            "Windows took too long to answer when Beerus Portable "
+            "asked for the list of drives, so no drives are listed. "
+            "Nothing was wiped. Restart Beerus Portable; if this "
+            "keeps happening, one of the drives in this machine "
+            "may be failing."
+        ) from None
+    except OSError:
+        raise BeerusError(
+            "Beerus Portable could not read the list of drives "
+            "on this machine."
+        ) from None
     if completed.returncode != 0:
         raise BeerusError(
             "Beerus Portable could not read the list of drives "
@@ -235,11 +269,17 @@ def parse_windows_inventory(
             raw_name=f"PhysicalDrive{number}",
             # PowerShell pads some vendors' model/serial strings;
             # canonicalize here so the typed-serial gate compares
-            # clean values, exactly as the lsblk parser does.
-            model=str(entry.get("FriendlyName") or "").strip(),
-            serial=str(entry.get("SerialNumber") or "").strip(),
+            # clean values, exactly as the lsblk parser does —
+            # including removing control characters, which can
+            # otherwise forge extra lines in the drive list and
+            # the scope statement, and which no operator could
+            # ever type back into the serial gate (kit-hunt
+            # finding: this parser stripped padding only, so the
+            # two parsers did NOT agree).
+            model=_clean_identity_text(entry.get("FriendlyName")),
+            serial=_clean_identity_text(entry.get("SerialNumber")),
             size_bytes=size_bytes,
-            interface=str(bus or "").strip(),
+            interface=_clean_identity_text(bus),
             wwn="",
             drive_class=_classify_windows(bus, entry.get("MediaType")),
             is_boot=number in system_numbers or number in own_numbers,

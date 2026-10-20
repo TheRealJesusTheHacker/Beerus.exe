@@ -804,6 +804,13 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.page_scope)
 
     def _confirm_identity(self):
+        # Re-entry guard: a queued second click (a double-click
+        # whose first press already finished or cancelled the
+        # gates) can land after the session is gone. That is a
+        # no-op, never an AttributeError crash in a slot
+        # (kit-hunt finding).
+        if self._session is None:
+            return
         try:
             self._session.confirm_identity(self.serial_edit.text())
         except BeerusError as error:
@@ -814,6 +821,13 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.page_scope)
 
     def _acknowledge_scope(self):
+        # Re-entry guard, as in _confirm_identity: a queued
+        # second click after the session ended is a no-op.
+        if self._flow == "drive":
+            if self._session is None:
+                return
+        elif self._file_session is None:
+            return
         if self._flow == "drive":
             try:
                 self._session.acknowledge_scope()
@@ -864,6 +878,14 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.page_final)
 
     def _final_confirmation(self):
+        # Re-entry guard, as in _confirm_identity: the erase
+        # button's queued second click must never dereference a
+        # session the first click already consumed and cleared.
+        if self._flow == "drive":
+            if self._session is None:
+                return
+        elif self._file_session is None:
+            return
         if self._flow == "drive":
             try:
                 token = self._session.final_confirmation(

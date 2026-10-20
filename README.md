@@ -2,7 +2,7 @@
 
 **Sentinel Safeguard LLC — secure drive destruction, on a key.**
 
-[![Version](https://img.shields.io/badge/version-v0.5.0-2ee06f?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
+[![Version](https://img.shields.io/badge/version-v0.5.1-2ee06f?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
 [![Platform](https://img.shields.io/badge/platform-Windows%20app%20%2B%20Bootable%20USB-0078D6?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe)
 [![Python](https://img.shields.io/badge/Python-3-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-b03a2e?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/LICENSE)
@@ -202,6 +202,19 @@ standard: plain language, no corners cut, nothing promised that
 isn't delivered.
 
 ## Status
+
+**v0.5.1 — the kit-hunt patch for Beerus Portable.** Fixes from
+the kit-wide Windows bug hunt: PowerShell inventory calls are
+time-bounded and UTF-8 (a stalled drive query can no longer
+hang the app before its window appears), Windows drive
+identity strings are control-character cleaned exactly as the
+lsblk parser cleans them, file scopes count files honestly on
+filesystems that report no inode numbers (FAT/exFAT), a
+free-space scope that would fill nothing is refused instead
+of reported complete, and the gate buttons are safe against
+double-click re-entry. Beerus Portable (this release) is the
+shipped, downloadable form; the executor still ships
+disarmed with no arming path in the app.
 
 **v0.5.0 — the bootable image definition (Phase 3).** The full
 definition of the Destruct Key Pro image now lives in this

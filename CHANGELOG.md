@@ -2,6 +2,55 @@
 
 All notable changes to BEERUS.EXE are recorded here.
 
+## [0.5.1] — 2026-10-20
+
+Kit-hunt patch for Beerus Portable — fixes from the kit-wide
+Windows bug hunt (a physical bundle test exposed defects no
+Linux process caught; this release is the portable's answer).
+The executor still ships DISARMED with no arming path in the
+app; whole-drive behavior is otherwise unchanged.
+
+- **PowerShell inventory can no longer hang the app
+  (beerus_portable/windows_inventory):** every PowerShell call
+  now has a 60-second ceiling — a stalled drive query used to
+  freeze the app before its window ever appeared, with no
+  message. A timeout, or PowerShell missing entirely, is now
+  the designed plain-language refusal. The queries also ask
+  PowerShell for UTF-8 and decode as UTF-8, instead of the
+  machine's console code page, so non-ASCII drive models and
+  serials arrive intact.
+- **Windows identity strings are cleaned like lsblk's:**
+  control characters are removed from model, serial, and
+  interface at parse time (the parser's comment always claimed
+  parity with the lsblk parser; it only stripped padding). A
+  crafted serial can no longer forge lines in the drive list
+  or scope statement, and no serial can be un-typeable at the
+  identity gate for containing a control character.
+- **File scope counts inode-less files honestly
+  (beerus.filewipe):** scope dedupe keyed files on (device,
+  inode) alone, so on a filesystem that reports inode 0 for
+  every file — FAT/exFAT volumes, the portable's home turf —
+  a folder of distinct files collapsed into ONE scope entry
+  and the confirmed count/bytes were a fraction of the real
+  selection. Inode-less files now dedupe on their path;
+  inode-bearing files keep full identity dedupe.
+- **A free-space scope that would fill nothing is refused
+  (beerus.filewipe):** when a volume's free space is smaller
+  than the safety margin Beerus always leaves, building the
+  scope now refuses in plain language instead of producing a
+  confirmable wipe — the engine previously reported a fully
+  verified COMPLETE over zero filled bytes.
+- **Gate buttons are re-entry safe (beerus_portable/app):** a
+  queued second click (double-click) landing after the first
+  click finished or cancelled the gates dereferenced the
+  cleared session and raised AttributeError inside a Qt slot.
+  The identity, acknowledge, and final-confirmation handlers
+  are now clean no-ops with no live session.
+- Six regression tests pin these fixes, each proven to fail
+  on the pre-fix code for the stated reason. Full suite and
+  the windows-latest release pipeline (tests, frozen build,
+  staged-exe smoke) are the evidence for this release.
+
 ## [0.5.0] — 2026-10-20
 
 Phase 3 — the bootable image definition.

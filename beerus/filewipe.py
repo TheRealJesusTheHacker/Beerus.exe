@@ -340,9 +340,19 @@ def build_file_scope(paths, *, protected_roots=None) -> FileScope:
         # file reached through an aliased (linked) parent folder
         # is ONE file, counted once (audit finding M3). Links
         # and special entries dedupe on their path.
-        if entry.kind == "file":
+        if entry.kind == "file" and entry.ino:
             key = ("ino", entry.dev, entry.ino)
         else:
+            # A file with no inode number to bind to (inode 0 is
+            # what some filesystems report when they have no file
+            # index to give — FAT/exFAT volumes, the portable's
+            # home turf, are the classic case) must NOT share a
+            # dedupe key with every other inode-less file: keying
+            # on inode 0 collapsed a whole folder of distinct
+            # files into ONE scope entry, so the announced count
+            # and bytes were a fraction of what the operator
+            # picked (kit-hunt finding). Identity dedupe still
+            # applies in full wherever a real inode exists.
             key = ("path", _normalized(entry.path))
         if key not in entries:
             entries[key] = entry
@@ -537,6 +547,21 @@ def build_free_space_scope(
         ) from None
     if reserve_bytes is None:
         reserve_bytes = max(16 * 1024 * 1024, free // 50)
+    if free - int(reserve_bytes) <= 0:
+        # A scope that would fill nothing must never be
+        # confirmable: the engine used to run it anyway and
+        # report a fully verified COMPLETE over zero bytes and
+        # zero checked filler — a success claim for a wipe that
+        # touched nothing (kit-hunt finding). Refuse here, at
+        # scope build, in plain language.
+        raise FileScopeError(
+            f"That volume has only {_human_size(free)} of free "
+            f"space, and Beerus always leaves a safety margin of "
+            f"{_human_size(int(reserve_bytes))} empty so the "
+            "system keeps running — so there is no free space "
+            "left over for Beerus to wipe. Nothing was wiped. "
+            "Free up some space on the volume, then try again."
+        )
     digest = hashlib.sha256()
     for field in ("freespace", root, str(free), str(reserve_bytes)):
         _feed(digest, field)
