@@ -246,6 +246,17 @@ class SurfaceReader(Protocol):
         ...
 
 
+def _pread(fd: int, length: int, offset: int) -> bytes:
+    """os.pread where the platform has it (POSIX); on Windows,
+    which has no pread, a seek + read on the reader's own
+    descriptor — the readers are single-descriptor and
+    sequential by design, so the fallback is exact."""
+    if hasattr(os, "pread"):
+        return os.pread(fd, length, offset)
+    os.lseek(fd, offset, os.SEEK_SET)
+    return os.read(fd, length)
+
+
 class FileSurfaceReader:
     """Read-only surface over a regular file (synthetic targets).
 
@@ -271,7 +282,12 @@ class FileSurfaceReader:
                 "reader only ever reads regular files."
             )
         try:
-            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            fd = os.open(
+                path,
+                os.O_RDONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_BINARY", 0),
+            )
         except OSError:
             raise UnsafeTargetError(
                 "The target file could not be opened for reading."
@@ -289,7 +305,7 @@ class FileSurfaceReader:
     def read_at(self, offset: int, length: int) -> bytes:
         if self._fd is None:
             raise OSError("The surface is closed.")
-        return os.pread(self._fd, length, offset)
+        return _pread(self._fd, length, offset)
 
     def close(self) -> None:
         if self._fd is not None:
@@ -319,11 +335,14 @@ class DeviceSurfaceReader:
 
     def _open(self) -> int:
         if self._fd is None:
-            self._fd = os.open(self._device_path, os.O_RDONLY)
+            self._fd = os.open(
+                self._device_path,
+                os.O_RDONLY | getattr(os, "O_BINARY", 0),
+            )
         return self._fd
 
     def read_at(self, offset: int, length: int) -> bytes:
-        return os.pread(self._open(), length, offset)
+        return _pread(self._open(), length, offset)
 
     def close(self) -> None:
         if self._fd is not None:
