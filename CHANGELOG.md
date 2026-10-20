@@ -41,8 +41,23 @@ Beerus Portable — the portable app edition, and file-level wiping.
 - **Release:** tag-gated Windows workflow builds
   `BeerusPortable.zip` (one-folder layout, no installer) with
   the full suite offscreen, a staged-app launch smoke test,
-  and SHA-256 checksums. 310 tests, all against synthetic
+  and SHA-256 checksums. 325 tests, all against synthetic
   targets.
+- **Independent audit cycle:** the portable surface was
+  audited before release (2 HIGH, 6 MEDIUM, 3 LOW findings,
+  all fixed and re-audited, each with a permanent regression
+  test): protected-folder checks now run on fully resolved
+  paths; files with more than one name (hardlinks) are
+  refused rather than silently destroying data at unlisted
+  names; scoped files are bound to their stat identity and
+  re-verified on the opened descriptor; aliased paths count
+  once; file-gate sessions expire like drive-gate sessions;
+  a free-space fill that falls short of the confirmed target
+  is reported as incomplete, never complete; the filler
+  folder is refused if it pre-exists as a link or with
+  foreign contents; report/record encodings are
+  length-prefixed against repartitioning; wrong-kind tokens
+  and scopes refuse cleanly.
 
 ## [0.3.0] — 2026-10-20
 
