@@ -282,12 +282,25 @@ class MainWindow(QMainWindow):
         self.operator_edit.textChanged.connect(self._update_start_enabled)
         layout.addWidget(self.operator_edit)
 
+        layout.addWidget(self._build_drive_panel(), stretch=1)
+        layout.addWidget(self._build_files_panel(), stretch=1)
+        layout.addWidget(self._build_free_panel(), stretch=1)
+        self._apply_mode()
+        self.page_drives = page
+
+    def _build_drive_panel(self):
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
         self.drive_list = QListWidget()
+        self.drive_list.setWordWrap(True)
+        self.drive_list.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self.drive_list.itemSelectionChanged.connect(
             self._update_start_enabled
         )
         layout.addWidget(self.drive_list, stretch=1)
-
         self.drive_note = QLabel(
             "Drives Beerus Portable will not wipe are greyed, with "
             "the reason shown. Nothing is hidden from this list."
@@ -295,7 +308,6 @@ class MainWindow(QMainWindow):
         self.drive_note.setObjectName("subtitle")
         self.drive_note.setWordWrap(True)
         layout.addWidget(self.drive_note)
-
         buttons = QHBoxLayout()
         self.refresh_button = QPushButton("Read the drives again")
         self.refresh_button.clicked.connect(self.refresh_drives)
@@ -306,11 +318,8 @@ class MainWindow(QMainWindow):
         self.start_button.clicked.connect(self._begin_gates)
         buttons.addWidget(self.start_button)
         layout.addLayout(buttons)
-
-        layout.addWidget(self._build_files_panel())
-        layout.addWidget(self._build_free_panel())
-        self._apply_mode()
-        self.page_drives = page
+        self.panel_drive = panel
+        return panel
 
     def _build_files_panel(self):
         panel = QWidget()
@@ -352,6 +361,7 @@ class MainWindow(QMainWindow):
         disclosure.setObjectName("subtitle")
         disclosure.setWordWrap(True)
         layout.addWidget(disclosure)
+        layout.addStretch(1)
         self.start_files_button = QPushButton(
             "Review exactly what will be wiped"
         )
@@ -392,6 +402,7 @@ class MainWindow(QMainWindow):
         disclosure.setObjectName("subtitle")
         disclosure.setWordWrap(True)
         layout.addWidget(disclosure)
+        layout.addStretch(1)
         self.start_free_button = QPushButton(
             "Review the free-space wipe"
         )
@@ -414,14 +425,7 @@ class MainWindow(QMainWindow):
 
     def _apply_mode(self):
         mode = self._current_mode()
-        drive_mode = mode == "drive"
-        for widget in (
-            self.drive_list,
-            self.drive_note,
-            self.refresh_button,
-            self.start_button,
-        ):
-            widget.setVisible(drive_mode)
+        self.panel_drive.setVisible(mode == "drive")
         self.panel_files.setVisible(mode == "files")
         self.panel_free.setVisible(mode == "free")
         self._update_start_enabled()
@@ -537,7 +541,8 @@ class MainWindow(QMainWindow):
             else:
                 status = assessment.reason or "Cannot be wiped"
             item = QListWidgetItem(
-                f"{drive.model} — serial {drive.serial}\n"
+                f"{drive.model or 'Unidentified drive'} — "
+                f"serial {drive.serial or 'not readable'}\n"
                 f"{human_size(drive.size_bytes)} · "
                 f"{drive.interface or 'unknown connection'} · {status}"
             )
@@ -641,6 +646,7 @@ class MainWindow(QMainWindow):
         cancel = QPushButton("Cancel — back to the drive list")
         cancel.clicked.connect(self._cancel_gates)
         buttons.addWidget(cancel)
+        self.scope_cancel_button = cancel
         buttons.addStretch(1)
         self.ack_button = QPushButton(
             "I have read this — everything on this drive "
@@ -676,6 +682,7 @@ class MainWindow(QMainWindow):
         cancel = QPushButton("Cancel — back to the drive list")
         cancel.clicked.connect(self._cancel_gates)
         buttons.addWidget(cancel)
+        self.final_cancel_button = cancel
         buttons.addStretch(1)
         self.erase_button = QPushButton("Erase this drive — permanently")
         self.erase_button.setObjectName("danger")
@@ -699,6 +706,12 @@ class MainWindow(QMainWindow):
         self._drive = drive
         self._plan = plan
         self._session = session
+        self.scope_cancel_button.setText(
+            "Cancel — back to the drive list"
+        )
+        self.final_cancel_button.setText(
+            "Cancel — back to the drive list"
+        )
         self.ack_button.setText(
             "I have read this — everything on this drive "
             "will be destroyed"
@@ -730,6 +743,8 @@ class MainWindow(QMainWindow):
             [entry.path for entry in scope.entries]
         )
         self._file_session = self._file_authority.begin_session(scope)
+        self.scope_cancel_button.setText("Cancel — back to the start")
+        self.final_cancel_button.setText("Cancel — back to the start")
         self.ack_button.setText(
             "I have read this — every file listed will be wiped"
         )
@@ -756,6 +771,8 @@ class MainWindow(QMainWindow):
             or self._class_for_letter(_drive_letter_of(root)) is None
         )
         self._file_session = self._file_authority.begin_session(scope)
+        self.scope_cancel_button.setText("Cancel — back to the start")
+        self.final_cancel_button.setText("Cancel — back to the start")
         self.ack_button.setText(
             "I have read this — fill this volume's free space"
         )
@@ -879,6 +896,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.running_facts)
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 0)  # busy until real counters arrive
+        # No percentage text: white-on-green digits fail the
+        # contrast bar, and the log below carries the real
+        # counters in words.
+        self.progress_bar.setTextVisible(False)
         layout.addWidget(self.progress_bar)
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
@@ -886,8 +907,8 @@ class MainWindow(QMainWindow):
         note = QLabel(
             "Do not switch the machine off or unplug the drive "
             "while this runs. When the wipe finishes, Beerus "
-            "reads the surface back and verifies the result "
-            "before any certificate is issued."
+            "reads the data back and verifies the result before "
+            "any document is issued."
         )
         note.setObjectName("subtitle")
         note.setWordWrap(True)
