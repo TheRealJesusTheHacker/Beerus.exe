@@ -522,3 +522,121 @@ def test_gate_buttons_are_noops_without_a_live_session(
     # Still on the start page, nothing started, nothing wiped.
     assert window.stack.currentWidget() is window.page_drives
     assert device_file.read_bytes() == b"\xaa" * SIZE
+
+
+# ------------------------------------------------- thread lifetime (v0.6.2)
+# A run's QThread used to be a child of this window, and its end
+# was never observed. Destroying the window while the thread was
+# still running destroyed the thread and aborted the whole
+# process ("QThread: Destroyed while thread is still running") —
+# the boot UI's v0.6.1 defect, present in this window too, and
+# reachable here by an ordinary action: this window had no close
+# guard, so closing it mid-run quit the app around a live wipe.
+# The thread is now owned by the application, `finished` retires
+# the pair deterministically, and closeEvent refuses to close
+# while a run is in flight or still unwinding.
+
+import shiboken6  # noqa: E402
+
+
+def wait_for_retirement(window, timeout_ms=30000):
+    waited = 0
+    while window._thread is not None:
+        QTest.qWait(50)
+        waited += 50
+        if waited > timeout_ms:
+            raise AssertionError("run thread was never retired")
+
+
+def test_run_thread_is_owned_by_the_application_and_retires(
+    qapp, device_file, documents_dir
+):
+    window = verified_window(device_file, documents_dir)
+    drive = make_drive()
+    select_first_drive(window)
+    walk_gates(window, drive.serial)
+    # The run has started; its thread belongs to the
+    # application, never to this window. (Pre-fix the parent
+    # was the window — this assertion fails with no crash.)
+    assert window._thread is not None
+    assert window._thread.parent() is qapp
+    wait_for_page(window, window.page_result)
+    wait_for_retirement(window)
+
+
+def test_window_destroyed_mid_run_does_not_abort(
+    qapp, tmp_path, documents_dir
+):
+    # A 64 MiB target keeps the wipe in flight long enough to
+    # destroy the window underneath it. Pre-fix, this test
+    # aborts the whole test process at the delete — that abort
+    # IS the regression signal, the same way the defect killed
+    # the boot UI's suite before v0.6.1.
+    size = 64 * MIB
+    device = tmp_path / "big-drive.img"
+    device.write_bytes(b"\xaa" * size)
+    drive = make_drive(device_path=str(device), size_bytes=size)
+    window = verified_window(device, documents_dir, drives=[drive])
+    select_first_drive(window)
+    walk_gates(window, drive.serial)
+    wait_for_page(window, window.page_running)
+    thread = window._thread
+    assert thread is not None and thread.isRunning()
+    shiboken6.delete(window)
+    # The run outlives its window and finishes on its own.
+    # Pump events while waiting: the worker's quit hop is a
+    # queued call into this thread, so a blocking wait would
+    # starve the delivery that ends the thread.
+    waited = 0
+    while thread.isRunning():
+        QTest.qWait(50)
+        waited += 50
+        assert waited < 180000, "orphaned run thread never finished"
+    # And it really wiped: every byte of the target is zeroed.
+    assert device.read_bytes() == b"\x00" * size
+
+
+def test_close_is_refused_while_a_run_is_in_flight(
+    qapp, tmp_path, documents_dir
+):
+    size = 64 * MIB
+    device = tmp_path / "big-drive.img"
+    device.write_bytes(b"\xaa" * size)
+    drive = make_drive(device_path=str(device), size_bytes=size)
+    window = verified_window(device, documents_dir, drives=[drive])
+    window.show()
+    select_first_drive(window)
+    walk_gates(window, drive.serial)
+    wait_for_page(window, window.page_running)
+    # Pre-fix there was no closeEvent at all: this close quit
+    # the app around the running wipe.
+    assert window.close() is False
+    assert window.isVisible()
+    wait_for_page(window, window.page_result, timeout_ms=180000)
+    wait_for_retirement(window)
+    # The run is over and the pair retired: closing works again.
+    assert window.close() is True
+
+
+def test_file_mode_run_thread_uses_the_same_ownership(
+    qapp, tmp_path, documents_dir
+):
+    # The file/free-space runs share _run_worker with the drive
+    # run's _start_wipe: same ownership contract, exercised
+    # here through files mode on a target big enough to observe
+    # mid-run.
+    size = 64 * MIB
+    target = tmp_path / "big-secret.bin"
+    target.write_bytes(b"\xbb" * size)
+    window = files_window(documents_dir)
+    window.operator_edit.setText("Skyler Test")
+    window.mode_files_radio.setChecked(True)
+    window._add_path(str(target))
+    window.start_files_button.click()
+    walk_file_gates(window, "ERASE 1 FILE")
+    wait_for_page(window, window.page_running)
+    assert window._thread is not None
+    assert window._thread.parent() is qapp
+    wait_for_page(window, window.page_result, timeout_ms=180000)
+    wait_for_retirement(window)
+    assert not target.exists()

@@ -2,6 +2,62 @@
 
 All notable changes to BEERUS.EXE are recorded here.
 
+## [0.6.2] — 2026-10-20
+
+Portable hardening: the boot UI's thread-lifetime fix, mirrored.
+
+- **A run's thread can no longer abort Beerus Portable as
+  its window is destroyed.** The portable window owned every
+  run's worker thread as a child object and never observed
+  the thread's end — the same pattern the boot UI carried
+  until v0.6.1, flagged for this pass in that release's own
+  notes. Here it was reachable by an ordinary action: this
+  window had no close guard, so closing it mid-run quit the
+  app around a live wipe, and destroying the window in that
+  state destroyed the still-running thread (Qt: "Destroyed
+  while thread is still running") and aborted the whole
+  process. Measured on the untouched v0.6.1 tree with
+  mechanism probes before any fix: a wipe thread was still
+  running at the moment its result page showed in 16 of 16
+  probe runs (the result on screen and the thread's actual
+  end are not the same moment, and here they never
+  coincided); destroying the window mid-run aborted every
+  time; and in the production shape — close the window
+  mid-wipe, the app quits, the process tears down — 1 of 5
+  runs aborted, the survivors decided only by whether the
+  wipe happened to finish before teardown arrived. The fix
+  mirrors the boot UI's, in both its halves: the thread is
+  now owned by the application instead of the window, and
+  its `finished` signal is observed and retires the worker
+  pairing deterministically; and closing the window is
+  refused while a run is in flight or still unwinding —
+  the guard this window was missing entirely, in the same
+  silent form the boot UI uses (no new wording, no dialog;
+  the close simply does not happen until the run is done).
+  Four regression tests pin the ownership, the retirement,
+  the mid-run window teardown, and the close refusal; on
+  the pre-fix code the ownership assertions fail outright
+  and the teardown test aborts the test process, as the
+  defect itself did. No gate, engine, verification,
+  palette, layout, or flow changed.
+- **Proof, not promises:** the same probes re-run against
+  the fixed tree — the result-beat drop survives 40 of 40,
+  the mid-run window destruction leaves the wipe to finish
+  on its own, and the production close now refuses mid-run,
+  completes, and exits clean; the full suite twenty
+  consecutive green runs and the portable GUI test file
+  thirty consecutive green runs locally; two consecutive
+  green Windows pipeline runs before this tag was cut.
+- **Honest limits, unchanged:** the executor still ships
+  disarmed, with no arming path in the app. The bootable
+  image has still never been built — this release is the
+  portable app only, and nothing in it is or implies a
+  downloadable boot image. How the app looks on a real
+  Windows desktop (real fonts, ClearType, DPI scaling) is
+  not claimed; the renders behind the palette are offscreen
+  Qt on the build machine, and Windows-side proof for this
+  release is the pipeline above.
+
 ## [0.6.1] — 2026-10-20
 
 Beerus Portable joins Beerus's own palette.

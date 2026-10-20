@@ -35,6 +35,7 @@ from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -966,7 +967,26 @@ class MainWindow(QMainWindow):
         self.progress_bar.setRange(0, 0)
         self.stack.setCurrentWidget(self.page_running)
 
-        self._thread = QThread(self)
+        # The run thread is owned by the application, NOT by
+        # this window, and its end is observed in
+        # _on_run_thread_finished below. Both halves matter. A
+        # QThread destroyed while it is still running aborts
+        # the whole process, and a run's thread is still
+        # unwinding for a beat after its result is on screen —
+        # the terminal signal and the thread's actual
+        # termination are not the same moment. This window has
+        # no close guard: closing it mid-run quits the app, and
+        # any embedding (or test teardown) may drop it the
+        # moment a result shows. When the thread was this
+        # window's child, destroying the window in either beat
+        # destroyed the still-running thread and took the
+        # process down with it. Owned by the application, the
+        # thread's lifetime no longer depends on this window
+        # outliving it, and `finished` retires the pair
+        # deterministically. (The boot UI learned this first;
+        # the same fix landed there in v0.6.1.)
+        app = QApplication.instance()
+        self._thread = QThread(app) if app is not None else QThread()
         self._worker = WipeWorker(self._engine, self._drive, token)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
@@ -975,10 +995,15 @@ class MainWindow(QMainWindow):
         self._worker.failed.connect(self._on_wipe_failed)
         self._worker.succeeded.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
+        self._thread.finished.connect(self._on_run_thread_finished)
         self._thread.start()
 
     def _run_worker(self, worker, on_succeeded):
-        self._thread = QThread(self)
+        # Same ownership contract as _start_wipe: the thread
+        # belongs to the application, never to this window, and
+        # `finished` retires the pair in _on_run_thread_finished.
+        app = QApplication.instance()
+        self._thread = QThread(app) if app is not None else QThread()
         self._worker = worker
         worker.moveToThread(self._thread)
         self._thread.started.connect(worker.run)
@@ -987,7 +1012,32 @@ class MainWindow(QMainWindow):
         worker.failed.connect(self._on_wipe_failed)
         worker.succeeded.connect(self._thread.quit)
         worker.failed.connect(self._thread.quit)
+        self._thread.finished.connect(self._on_run_thread_finished)
         self._thread.start()
+
+    def _on_run_thread_finished(self):
+        # A run thread has fully terminated (this is a beat
+        # AFTER its result page shows — see _start_wipe).
+        # Release the pair, unless a later run already owns
+        # the slots.
+        if self.sender() is self._thread:
+            self._thread = None
+            self._worker = None
+
+    def closeEvent(self, event):
+        # A run in flight is never interrupted by closing the
+        # window — the drive's state depends on it finishing,
+        # and closing here would quit the app and tear the
+        # process down around a thread that is still working
+        # (the application-side half of the hazard _start_wipe
+        # describes). _thread is retired only when a run's
+        # thread has fully terminated, so a non-None _thread
+        # is exactly "a run is in flight or still unwinding".
+        # The boot UI guards its wipe the same way.
+        if self._thread is not None:
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     def _start_file_wipe(self, token):
         scope = self._file_scope

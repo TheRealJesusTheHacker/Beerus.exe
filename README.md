@@ -2,7 +2,7 @@
 
 **Sentinel Safeguard LLC — secure drive destruction, on a key.**
 
-[![Version](https://img.shields.io/badge/version-v0.6.1-a478f7?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
+[![Version](https://img.shields.io/badge/version-v0.6.2-a478f7?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
 [![Platform](https://img.shields.io/badge/platform-Windows%20app%20%2B%20Bootable%20USB-0078D6?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe)
 [![Python](https://img.shields.io/badge/Python-3-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-b03a2e?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/LICENSE)
@@ -202,6 +202,19 @@ standard: plain language, no corners cut, nothing promised that
 isn't delivered.
 
 ## Status
+
+**v0.6.2 — Portable hardening.** The portable window's run
+thread is now owned by the application and its end is
+observed, and closing the window is refused while a run is
+in flight — the same thread-lifetime fix the boot UI
+received in v0.6.1, mirrored here after probes measured
+the same abort class in this window (closing it mid-wipe
+could take the whole process down). No behavior, gate,
+engine, wording, or color change beyond that; the executor
+still ships disarmed with no arming path in the app. This
+release is the portable app only; the bootable image is
+still unbuilt — everything said about it in the notes
+below stands.
 
 **v0.6.1 — Beerus Portable takes Beerus's colors.** The
 portable app now wears the same namesake palette as the boot
