@@ -294,7 +294,7 @@ def test_files_mode_full_flow(qapp, tmp_path, documents_dir):
     window = files_window(documents_dir)
     window.operator_edit.setText("Skyler Test")
     window.mode_files_radio.setChecked(True)
-    assert window.drive_list.isHidden()
+    assert window.panel_drive.isHidden()
     assert not window.panel_files.isHidden()
     window._add_path(str(target))
     assert window.start_files_button.isEnabled()
