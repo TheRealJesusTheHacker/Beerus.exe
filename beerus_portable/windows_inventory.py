@@ -312,7 +312,7 @@ def parse_windows_inventory(
             "Beerus Portable could not tell which drive Windows "
             "is running from, so it will not list drives at all. "
             "Nothing was wiped. Restart Beerus Portable; if this "
-            "keeps happening, use the Destruct Key Pro instead."
+            "keeps happening, use Live Boot instead."
         )
 
     context = PortableDriveContext(

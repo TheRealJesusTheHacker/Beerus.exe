@@ -2,6 +2,110 @@
 
 All notable changes to BEERUS.EXE are recorded here.
 
+## [0.6.0] — 2026-10-20
+
+Phase 4 — the boot-environment UI.
+
+- **The boot UI (`beerus.bootui`, `python3 -m beerus.bootui`):**
+  a graphical window over the live session's own flows — the
+  same `GateAuthority` sessions, `WipeEngine`, verifier, and
+  certificate code the boot console drives, presented as pages:
+  welcome (operator name, the memory-only documents warning),
+  the drive list with eligibility reasons on the greyed rows,
+  prove-the-drive (typed serial), the full scope, the exact
+  final phrase, the running wipe with the engine's own progress
+  (a percentage only when an event carries one — a firmware
+  erase shows a busy bar and no invented number), and a result
+  page that states the verdict and the document exactly as the
+  console words them. Every refusal and failure lands on a
+  designed page — a message page for gate refusals and expired
+  sessions, a NOT-sanitized result state for a wipe that stopped
+  early — never a traceback. A short fade marks page changes;
+  it is visual only and never delays a transition. The window
+  refuses to close while a wipe runs.
+- **No new arming anywhere:** the boot UI contains no arming
+  code and constructs no executor. It consumes the
+  `(engine, authority, documents_dir)` triple from
+  `beerus.live.build_live_engine` — still the one arming site —
+  and a refusal from that builder is a designed refusal window
+  with exit code 2. If no graphical session can start at all,
+  the UI exits 76 with one plain line.
+- **Beerus's own palette:** the boot UI does not wear the
+  fleet's shared green/black. By the owner's namesake
+  exception for this tool (2026-10-20 — purple for Beerus
+  "because it's appropriate"), it is deep violet-black, Beerus
+  violet, and destruction gold, with the erase action in the
+  same true danger red as everywhere else. The constants are
+  the fleet palette program's canonical Beerus set (BG
+  `#0a0614`, violet `#a478f7`, gold `#e0aa3e`, hot highlight
+  `#d0a6ff`), proven on renders before they were adopted
+  here. Every text pairing is pinned to the 4.5:1 contrast
+  floor by test, and the exact palette is literal-pinned so
+  it cannot drift silently. The portable app's palette is
+  unchanged.
+- **Graphical-first launcher, console fallback:**
+  `beerus-live` now tries the graphical session first
+  (`startx` running the new `beerus-ui` client). Its exit code
+  is honored exactly — 0 is a clean finish and 2 is the
+  designed refusal, which stays final (the console would only
+  repeat it, and systemd does not restart on 2). Any other
+  outcome, or no `startx` at all, falls back to the text
+  console inside the same service, announced with two plain
+  lines; the console's exec remains the launcher's final
+  command, so its exit code is the service's.
+- **Image definition:** the graphical-session packages join
+  the package list (X server with the generic framebuffer/VESA
+  drivers, libinput, `xinit`, the PySide6 Qt libraries, DejaVu
+  Sans — each commented with its reason, and a note that the
+  text console needs none of it); the build hook proves the
+  staged boot UI and the `beerus-ui` client are in the image;
+  staging requires the boot UI package; and
+  `check_definition.py` verifies the new design semantically —
+  GUI packages as listed tokens, the client's exec target, the
+  launcher's startx client, status capture and both honored
+  exit codes, the fallback exec's place and finality, and the
+  hook's boot-UI proof.
+- **Independent-audit fixes (Phase 4):** the boot UI imports
+  nothing outside the staged `beerus` package — its size
+  formatter is its own, in the format the drive list already
+  showed — guarded by an import-closure test that imports the
+  boot UI from a staged-only tree; the definition checker now
+  binds the honored exits to the correct branch of their
+  status tests, refuses a backgrounded or pipelined `startx`,
+  requires the two fallback notice lines and the `beerus-ui`
+  client's staged-package path, and requires that client to
+  contain exactly the one boot-UI exec; and any failure while
+  the boot UI builds its live session lands on the designed
+  refusal window with exit code 2, never a traceback.
+- **Re-audit hardening (Phase 4):** an independent re-audit
+  found the checker's branch-aware rewrite still credited
+  spellings that could make a graphical refusal read as
+  success (a reassigned status variable, a function-wrapped
+  `startx`). The two start scripts are now held to a strict
+  canonical grammar — no functions, subshells, substitutions,
+  pipelines, backgrounding, or `case` — and exits, notices,
+  and the fallback exec are credited only when the set of
+  status outcomes that can reach them is exactly right
+  (capture integrity, reachability-true crediting); the
+  boot-UI client's Python-path value must be written out in
+  full, and the import-closure guard also covers lazy dynamic
+  imports. A final independent audit of the merged v0.6.0
+  tree re-proved the gates, the fallback, and the checker
+  batteries end to end before this entry shipped.
+- **Renamed:** the bootable form is now **Live Boot** (owner
+  direction, 2026-10-20) — every user-visible "Destruct Key
+  Pro" is now "Live Boot", in the boot UI, the boot console,
+  the image definition's display strings, and the docs.
+  Internal markers are unchanged by design: the `BEERUS_KEY`
+  volume label, the `beerus-key` hostname, the live-image
+  marker, and the file and unit names are functional identity,
+  not display copy. Dated entries below keep the name they
+  were written under.
+- **Honest limits, unchanged:** the image has still never been
+  built, and no release is cut for this phase — a release would
+  imply a downloadable image that does not exist. The first
+  build and all hardware proof remain Phase 5.
+
 ## [0.5.1] — 2026-10-20
 
 Kit-hunt patch for Beerus Portable — fixes from the kit-wide

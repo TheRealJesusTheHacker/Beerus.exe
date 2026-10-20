@@ -4,7 +4,7 @@ Phase 1's boot-device exclusion reads the mount tree: a partition
 mounted at ``/``, ``/boot``, ``/boot/efi``, or ``/efi`` marks its
 whole disk as the boot device. That layer has a known blind spot,
 recorded since Phase 1: a boot partition that is *not mounted* is
-invisible to it. The classic case is the Destruct Key Pro itself —
+invisible to it. The classic case is the Live Boot key itself —
 booted from USB, the live system runs from memory and a squashfs
 image, and the key's own EFI system partition may never be mounted
 at all.
@@ -12,7 +12,7 @@ at all.
 This module is the second, independent layer, and it is part of
 the image's design rather than the running system's luck:
 
-* **A label baked into the image.** Every Destruct Key Pro image
+* **A label baked into the image.** Every Live Boot image
   is built with the volume label ``BEERUS_KEY`` (see
   ``image/build.sh`` — the label is a build input, not something
   a running system chooses). Filesystem labels are readable from
@@ -20,7 +20,7 @@ the image's design rather than the running system's luck:
   partition with this label is marked as a boot device even when
   every one of its partitions is unmounted. Marking is
   deliberately one-directional: a disk that merely *carries the
-  label* (a second, cloned Destruct Key, for example) is also
+  label* (a second, cloned Live Boot key, for example) is also
   never a target. Beerus over-protects keys; it never
   under-protects one.
 
@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import json
 
-# The volume label baked into every Destruct Key Pro image at
+# The volume label baked into every Live Boot image at
 # build time (image/build.sh passes it to the image builder as
 # the ISO volume label, and the flash medium carries it). Exact
 # match after stripping surrounding whitespace — labels are
@@ -83,7 +83,7 @@ DEFAULT_DOCUMENTS_DIR = "/var/log/beerus/certificates"
 
 
 def is_boot_medium_label(label) -> bool:
-    """True when *label* is exactly the Destruct Key Pro label."""
+    """True when *label* is exactly the Live Boot label."""
     if label is None:
         return False
     return str(label).strip() == LIVE_VOLUME_LABEL

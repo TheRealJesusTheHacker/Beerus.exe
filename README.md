@@ -2,7 +2,7 @@
 
 **Sentinel Safeguard LLC — secure drive destruction, on a key.**
 
-[![Version](https://img.shields.io/badge/version-v0.5.1-2ee06f?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
+[![Version](https://img.shields.io/badge/version-v0.6.0-2ee06f?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
 [![Platform](https://img.shields.io/badge/platform-Windows%20app%20%2B%20Bootable%20USB-0078D6?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe)
 [![Python](https://img.shields.io/badge/Python-3-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-b03a2e?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/LICENSE)
@@ -17,8 +17,8 @@ In the stories, Beerus is the God of Destruction — the one being
 whose job is endings, done completely and without reversal.
 
 BEERUS.EXE is Sentinel Safeguard's drive-destruction tool. This
-repository is flashed to a USB drive to create the **Destruct Key
-Pro**: a bootable sanitization key. Plug it into any machine, boot
+repository is flashed to a USB drive to create **Live Boot**: a
+bootable sanitization key. Plug it into any machine, boot
 from it, pick a drive, and the data on that drive is destroyed to
 the **NIST 800-88** media sanitization standard — the standard
 governments and enterprises use when "deleted" has to actually
@@ -30,13 +30,13 @@ turns end-of-life hardware into a documented, billable Sentinel
 service — or a plainly-marked failure report when it doesn't.
 A wipe that can't be verified never earns the certificate.
 
-## Two forms: the Destruct Key Pro and Beerus Portable
+## Two forms: Live Boot and Beerus Portable
 
 Beerus comes in two forms, and they are the same tool — one
 engine, the same consent gates, the same verification, the same
 documents. No forked wipe logic exists anywhere.
 
-- **The Destruct Key Pro (bootable live USB)** — the original
+- **Live Boot (bootable live USB)** — the original
   form. Boot any machine from the key; the machine's own system
   never starts. This is the form for destroying the drive a
   machine runs from, and for bare-metal decommissioning work.
@@ -100,7 +100,7 @@ and filler in one volume's free space.
 
 1. **Flash** — the image defined in this repo (built per
    [docs/IMAGE-BUILD.md](docs/IMAGE-BUILD.md)) is written to a
-   USB drive. That USB is now a Destruct Key Pro.
+   USB drive. That USB is now a Live Boot key.
 2. **Boot** — the key boots any machine straight into Beerus. The
    machine's own system never starts; nothing on its drives is
    touched until you say so.
@@ -176,7 +176,7 @@ later.
   by what method, and what *won't* be touched is stated in full
   before the wipe starts — and the actual wipe never exceeds the
   announced scope.
-- **The boot key protects itself.** The Destruct Key Pro itself
+- **The boot key protects itself.** The Live Boot key itself
   can **never** be a wipe target. Beerus excludes its own boot
   device from the target list, always — twice over. The running
   system excludes the device it booted from, and the image
@@ -203,6 +203,22 @@ isn't delivered.
 
 ## Status
 
+**v0.6.0 — the boot-environment UI (Phase 4).** The key now
+boots graphical-first: the boot service's launcher starts an
+X session running the new boot UI (`beerus.bootui`) — the same
+gates, engine, verification, and certificate code as the text
+console, presented as designed pages in Beerus's own colors
+(deep violet-black, Beerus violet, and destruction gold — the
+owner's namesake call for this tool). If a graphical session
+cannot start on the machine at hand, the launcher says so in
+two plain lines and continues in the text console inside the
+same service — the full flow, never a lesser mode — and a
+designed refusal (exit 2) stays final in either presentation.
+The boot UI arms nothing itself: `beerus.live`'s builder
+remains the one arming site, and the UI consumes its session.
+The image itself is still unbuilt — everything said about it
+in the v0.5.0 note below stands.
+
 **v0.5.1 — the kit-hunt patch for Beerus Portable.** Fixes from
 the kit-wide Windows bug hunt: PowerShell inventory calls are
 time-bounded and UTF-8 (a stalled drive query can no longer
@@ -217,7 +233,7 @@ shipped, downloadable form; the executor still ships
 disarmed with no arming path in the app.
 
 **v0.5.0 — the bootable image definition (Phase 3).** The full
-definition of the Destruct Key Pro image now lives in this
+definition of the Live Boot image now lives in this
 repository under [`image/`](image/): the package list, the
 files baked into the image, the build hooks, and the build
 script that assembles it — the key is reproducible from source.

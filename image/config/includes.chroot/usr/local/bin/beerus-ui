@@ -1,0 +1,17 @@
+#!/bin/sh
+# beerus-ui — the Beerus graphical session's client.
+#
+# This is the program the X session runs: beerus-live starts it
+# through startx when a graphical session is available (see
+# beerus-live for the design). It is a client of the one arming
+# site, not an arming site of its own — the boot UI module asks
+# beerus.live.build_live_engine for the session's engine, exactly
+# as the text console does, and shows that builder's refusal when
+# it refuses.
+#
+# The beerus package is staged into the image at /opt/beerus at
+# build time (image/stage_image.py, run by image/build.sh).
+# PYTHONPATH points there.
+PYTHONPATH="/opt/beerus${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+exec python3 -m beerus.bootui "$@"

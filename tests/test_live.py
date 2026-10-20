@@ -493,7 +493,7 @@ def test_main_refuses_without_a_marker():
         geteuid=lambda: 0,
     )
     assert code == 2
-    assert "not running from the Destruct Key Pro live image" in io.text
+    assert "not running from the Live Boot image" in io.text
     assert environ == {}
 
 
@@ -508,7 +508,7 @@ def test_main_refuses_a_foreign_marker():
         geteuid=lambda: 0,
     )
     assert code == 2
-    assert "not running from the Destruct Key Pro live image" in io.text
+    assert "not running from the Live Boot image" in io.text
 
 
 def test_main_refuses_a_non_root_session():
@@ -629,7 +629,7 @@ def test_importing_the_package_arms_nothing(monkeypatch):
     monkeypatch.delenv(RealExecutor.ARM_ENV_VAR, raising=False)
     import os
 
-    assert beerus.__version__ == "0.5.1"
+    assert beerus.__version__ == "0.6.0"
     assert os.environ.get(RealExecutor.ARM_ENV_VAR) is None
 
 
@@ -645,6 +645,6 @@ def test_module_entry_point_refuses_cleanly_off_image():
         timeout=60,
     )
     assert proc.returncode == 2
-    assert "not running from the Destruct Key Pro" in proc.stdout
+    assert "not running from the Live Boot" in proc.stdout
     assert "RuntimeWarning" not in proc.stderr
     assert "Traceback" not in proc.stderr

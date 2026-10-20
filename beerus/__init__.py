@@ -1,4 +1,4 @@
-"""BEERUS.EXE — Sentinel Safeguard LLC secure drive destruction (the Destruct Key Pro).
+"""BEERUS.EXE — Sentinel Safeguard LLC secure drive destruction (Live Boot).
 
 Phase 1 + 2 library: drive inventory, NIST 800-88 method selection,
 the consent-gate framework, the wipe engine, post-wipe verification,
@@ -17,12 +17,17 @@ under the same consent discipline, with signed wipe reports.
 
 Phase 3 adds the bootable image definition (``image/`` in this
 repository) and its two in-package pieces: ``beerus.bootmedium``,
-the image-level boot protection that marks the Destruct Key Pro
+the image-level boot protection that marks the Live Boot key
 by its baked-in volume label even when its partitions are not
 mounted, backing the mount-tree exclusion with a second,
 independent layer; and ``beerus.live``, the boot console the
 image starts — the only place the real-drive executor is armed,
 and only after the image's build-time marker has been verified.
+
+Phase 4 adds ``beerus.bootui``, the graphical boot environment
+the image starts first — the same gates, the same engine, and
+the same job documents as the console, which remains as the
+designed fallback when the graphical session cannot start.
 """
 
 from .bootmedium import (
@@ -84,7 +89,7 @@ from .verify import (
     verify_result_authentic,
 )
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 __all__ = [
     "BeerusError",

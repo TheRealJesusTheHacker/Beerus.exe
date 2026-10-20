@@ -1,11 +1,41 @@
 #!/bin/sh
-# beerus-live — start the Beerus boot console.
+# beerus-live — start Beerus Live Boot.
+#
+# Graphical first, text console as the designed fallback:
+#
+# 1. If startx is available, the graphical session runs: it is
+#    the same Beerus — the same engine, the same consent gates,
+#    the same job documents — presented in a window. Its exit
+#    code is honored exactly: 0 is a clean finish, and 2 is the
+#    designed refusal (for example, this machine is not running
+#    the live image). A refusal is final: the fallback console
+#    would only repeat the same refusal, and systemd does not
+#    restart on 2, so the reason stays on the screen to be read.
+# 2. If startx is missing, or the graphical session ends any
+#    other way, Beerus continues in its text console on this
+#    terminal — and says so, in plain words, before it starts.
+#    The console is not a lesser mode: it is the Phase 3 boot
+#    console, the full flow, over the same arming site.
 #
 # The beerus package is staged into the image at /opt/beerus at
 # build time (image/stage_image.py, run by image/build.sh).
-# PYTHONPATH points there; the console module does the rest —
-# including refusing to arm anything if this machine is not
-# actually running the live image.
+# PYTHONPATH points there; the modules do the rest — including
+# refusing to arm anything if this machine is not actually
+# running the live image.
 PYTHONPATH="/opt/beerus${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
+
+if command -v startx >/dev/null 2>&1; then
+  startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty
+  beerus_status=$?
+  if [ "$beerus_status" -eq 0 ]; then
+    exit 0
+  fi
+  if [ "$beerus_status" -eq 2 ]; then
+    exit 2
+  fi
+fi
+
+echo "The graphical session could not start on this machine."
+echo "Beerus is continuing in its text console — the same confirmation steps, the same engine, the same job documents."
 exec python3 -m beerus "$@"

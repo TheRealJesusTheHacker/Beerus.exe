@@ -1,6 +1,6 @@
 """Beerus Portable — the no-install Windows app edition of BEERUS.EXE.
 
-Beerus has two forms. The Destruct Key Pro is the bootable live
+Beerus has two forms. Live Boot is the bootable live
 USB: it boots a machine into Beerus and destroys drives there.
 Beerus Portable is the same destruction engine — the same NIST
 800-88 methods, the same consent gates, the same verification and

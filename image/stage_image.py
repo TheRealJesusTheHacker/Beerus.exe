@@ -34,7 +34,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Files the running image must contain for the console to exist.
-_REQUIRED_PACKAGE_FILES = ("beerus/live.py", "beerus/bootmedium.py")
+_REQUIRED_PACKAGE_FILES = (
+    "beerus/live.py",
+    "beerus/bootmedium.py",
+    "beerus/bootui/__init__.py",
+    "beerus/bootui/app.py",
+)
 
 
 class StageError(Exception):

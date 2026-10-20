@@ -1,7 +1,7 @@
-# The Destruct Key Pro image — definition
+# The Live Boot image — definition
 
 This directory is the complete, versioned definition of the
-Destruct Key Pro bootable image. The key is reproducible from
+Live Boot bootable image. The key is reproducible from
 source: everything the image contains and does is decided here
 or by `build.sh`, and nothing is assembled by hand.
 

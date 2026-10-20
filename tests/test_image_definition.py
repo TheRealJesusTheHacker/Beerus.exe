@@ -3629,3 +3629,847 @@ def test_check_accepts_a_terminator_in_an_unproven_case_arm(
     )
     problems = check_definition.check(image)
     assert not any("hook" in problem for problem in problems)
+
+
+# ------------------------------------------------------------------
+# Phase 4: the graphical session in the definition
+# ------------------------------------------------------------------
+
+_LAUNCHER = "config/includes.chroot/usr/local/bin/beerus-live"
+_UI_CLIENT = "config/includes.chroot/usr/local/bin/beerus-ui"
+
+
+def _mutate_launcher(image, old, new):
+    launcher = image / _LAUNCHER
+    text = launcher.read_text(encoding="utf-8")
+    assert old in text
+    launcher.write_text(text.replace(old, new), encoding="utf-8")
+    return launcher
+
+
+def test_check_catches_a_missing_gui_package(tmp_path):
+    """Phase 4 regression: the graphical session's packages are
+    required as listed package tokens, one by one."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    package_list = image / "config/package-lists/beerus.list.chroot"
+    text = package_list.read_text(encoding="utf-8")
+    package_list.write_text(text.replace("xinit\n", ""), encoding="utf-8")
+    problems = check_definition.check(image)
+    assert any("xinit" in problem for problem in problems)
+
+
+def test_check_catches_a_missing_ui_client(tmp_path):
+    _repo, image = _copy_definition_tree(tmp_path)
+    (image / _UI_CLIENT).unlink()
+    problems = check_definition.check(image)
+    assert any("beerus-ui" in problem for problem in problems)
+
+
+def test_check_catches_a_non_executable_ui_client(tmp_path):
+    import os
+
+    _repo, image = _copy_definition_tree(tmp_path)
+    os.chmod(image / _UI_CLIENT, 0o644)
+    problems = check_definition.check(image)
+    assert any(
+        "beerus-ui is not executable" in problem for problem in problems
+    )
+
+
+def test_check_catches_a_ui_client_that_starts_the_console_module(
+    tmp_path,
+):
+    """The graphical client must exec the boot UI module; the
+    text console's module in its place would start the wrong
+    session under X."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    client = image / _UI_CLIENT
+    text = client.read_text(encoding="utf-8")
+    client.write_text(
+        text.replace("python3 -m beerus.bootui", "python3 -m beerus"),
+        encoding="utf-8",
+    )
+    problems = check_definition.check(image)
+    assert any("boot UI" in problem for problem in problems)
+
+
+def test_check_catches_a_launcher_without_startx(tmp_path):
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image, "  startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty\n", ""
+    )
+    problems = check_definition.check(image)
+    assert any(
+        "never tries the graphical session" in problem
+        for problem in problems
+    )
+
+
+def test_check_catches_a_launcher_that_falls_back_first(tmp_path):
+    """The text fallback's exec in front of the graphical
+    attempt ends the script before graphics are ever tried."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    launcher = image / _LAUNCHER
+    launcher.write_text(
+        "#!/bin/sh\n"
+        'PYTHONPATH="/opt/beerus${PYTHONPATH:+:$PYTHONPATH}"\n'
+        "export PYTHONPATH\n"
+        'exec python3 -m beerus "$@"\n'
+        "startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty\n"
+        "beerus_status=$?\n",
+        encoding="utf-8",
+    )
+    problems = check_definition.check(image)
+    assert any(
+        "never tries the graphical session" in problem
+        or "no text fallback after the graphical" in problem
+        for problem in problems
+    )
+
+
+def test_check_catches_a_launcher_that_swallows_the_startx_status(
+    tmp_path,
+):
+    """``startx ... || true`` throws the graphical session's
+    verdict away: a designed refusal (exit 2) would be lost and
+    the fallback would start as if nothing had been decided."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        "startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty\n",
+        "startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty || true\n",
+    )
+    problems = check_definition.check(image)
+    assert any("swallows" in problem for problem in problems)
+
+
+def test_check_catches_a_launcher_without_a_status_capture(tmp_path):
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(image, "  beerus_status=$?\n", "")
+    problems = check_definition.check(image)
+    assert any(
+        "does not capture" in problem for problem in problems
+    )
+
+
+def test_check_catches_a_launcher_that_lets_a_refusal_fall_through(
+    tmp_path,
+):
+    """Only exit 0 is honored: a graphical refusal (exit 2)
+    would fall into the text fallback, repeat itself, and put
+    the service on a restart-worthy path."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        '  if [ "$beerus_status" -eq 2 ]; then\n    exit 2\n  fi\n',
+        "",
+    )
+    problems = check_definition.check(image)
+    assert any("does not exit 2" in problem for problem in problems)
+
+
+def test_check_catches_a_launcher_whose_startx_client_is_wrong(
+    tmp_path,
+):
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        "startx /usr/local/bin/beerus-ui",
+        "startx /usr/local/bin/beerus-console",
+    )
+    problems = check_definition.check(image)
+    assert any("client" in problem for problem in problems)
+
+
+def _mutate_ui_client(image, old, new):
+    client = image / _UI_CLIENT
+    text = client.read_text(encoding="utf-8")
+    assert old in text
+    client.write_text(text.replace(old, new), encoding="utf-8")
+    return client
+
+
+def test_check_catches_an_exit_zero_parked_in_the_else_branch(tmp_path):
+    """Phase 4 fix regression (F-02, auditor mutation m09): the
+    ``exit 0`` moved into the ELSE of the status==0 test. It
+    fires on every non-zero graphical outcome (a success lie)
+    and lets a zero outcome fall through to the text session
+    (a double run) — the exit is bound only in the branch
+    whose condition it matches, and the else is not it."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        '  if [ "$beerus_status" -eq 0 ]; then\n    exit 0\n  fi\n',
+        '  if [ "$beerus_status" -eq 0 ]; then\n'
+        '    echo "graphical session finished"\n'
+        "  else\n"
+        "    exit 0\n"
+        "  fi\n",
+    )
+    problems = check_definition.check(image)
+    assert any("does not exit 0" in problem for problem in problems)
+
+
+def test_check_catches_an_exit_two_parked_in_the_else_branch(tmp_path):
+    """F-02, the other polarity: ``exit 2`` in the ELSE of the
+    status==2 test claims a refusal for every outcome that is
+    not a refusal, and lets a real refusal fall through."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        '  if [ "$beerus_status" -eq 2 ]; then\n    exit 2\n  fi\n',
+        '  if [ "$beerus_status" -eq 2 ]; then\n'
+        '    echo "not a refusal"\n'
+        "  else\n"
+        "    exit 2\n"
+        "  fi\n",
+    )
+    problems = check_definition.check(image)
+    assert any("does not exit 2" in problem for problem in problems)
+
+
+def test_check_accepts_the_bound_exits_in_their_then_branches(tmp_path):
+    """F-02 positive control: the shipped form — each exit in
+    the THEN branch of its own status test — still proves."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    problems = check_definition.check(image)
+    assert not any("does not exit" in problem for problem in problems)
+
+
+def test_check_catches_a_backgrounded_startx(tmp_path):
+    """Phase 4 fix regression (F-03, auditor mutation m10):
+    ``startx ... &`` backgrounds the session — the captured
+    $? is the launch result (0 when the job started), never
+    the session's exit code, so a graphical failure would be
+    reported as success with no fallback."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        "startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty\n",
+        "startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty &\n",
+    )
+    problems = check_definition.check(image)
+    assert any("background" in problem for problem in problems)
+
+
+def test_check_catches_a_pipelined_startx(tmp_path):
+    """F-03, pipeline form: a piped startx reports the
+    pipeline's last command, not the session's exit code."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        "startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty\n",
+        "startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty | cat\n",
+    )
+    problems = check_definition.check(image)
+    assert any(
+        "background" in problem or "pipeline" in problem
+        for problem in problems
+    )
+
+
+_NOTICE_1 = 'echo "The graphical session could not start on this machine."\n'
+_NOTICE_2 = (
+    'echo "Beerus is continuing in its text console — the same '
+    "confirmation steps, the same engine, the same job documents.\"\n"
+)
+
+
+def test_check_catches_a_launcher_without_the_fallback_notice(tmp_path):
+    """Phase 4 fix regression (F-04, auditor mutation m06):
+    both notice lines deleted — the fallback would run
+    silently, with the operator never told the graphical
+    session could not start."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(image, _NOTICE_1 + _NOTICE_2, "")
+    problems = check_definition.check(image)
+    assert any("notice" in problem for problem in problems)
+
+
+def test_check_catches_a_lying_fallback_notice(tmp_path):
+    """F-04 (auditor mutation m06b): the second notice line
+    rewritten to claim the graphical session while the text
+    session is what actually runs."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        _NOTICE_2,
+        'echo "Beerus is continuing in its graphical session — '
+        "the same confirmation steps, the same engine, the same "
+        'job documents."\n',
+    )
+    problems = check_definition.check(image)
+    assert any("notice" in problem for problem in problems)
+
+
+def test_check_catches_a_ui_client_without_a_python_path(tmp_path):
+    """Phase 4 fix regression (F-05, auditor mutation m07):
+    beerus-ui loses the lines that put the staged package on
+    its path — the graphical session could not import the
+    staged package and would never start."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_ui_client(
+        image,
+        'PYTHONPATH="/opt/beerus${PYTHONPATH:+:$PYTHONPATH}"\n'
+        "export PYTHONPATH\n",
+        "",
+    )
+    problems = check_definition.check(image)
+    assert any(
+        "beerus-ui" in problem and "/opt/beerus" in problem
+        for problem in problems
+    )
+
+
+def test_check_catches_a_ui_client_with_a_wrong_python_path(tmp_path):
+    """F-05, wrong-path form: the path is set and exported,
+    but it does not contain the baked app root /opt/beerus."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_ui_client(
+        image, 'PYTHONPATH="/opt/beerus', 'PYTHONPATH="/opt/elsewhere'
+    )
+    problems = check_definition.check(image)
+    assert any(
+        "beerus-ui" in problem and "/opt/beerus" in problem
+        for problem in problems
+    )
+
+
+def test_check_catches_a_ui_client_that_never_exports_its_path(tmp_path):
+    """F-05, unexported form: the path is assigned but never
+    exported, so the python3 it execs would not see it."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_ui_client(image, "export PYTHONPATH\n", "")
+    problems = check_definition.check(image)
+    assert any(
+        "beerus-ui" in problem and "never exports" in problem
+        for problem in problems
+    )
+
+
+def test_check_catches_a_ui_client_that_runs_the_text_module_first(
+    tmp_path,
+):
+    """Phase 4 fix regression (F-06, auditor mutation m08):
+    the text session's module run first, in a subshell, then
+    the boot UI — the client must do exactly one thing."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_ui_client(
+        image,
+        'exec python3 -m beerus.bootui "$@"',
+        '( exec python3 -m beerus "$@" )\n'
+        'exec python3 -m beerus.bootui "$@"',
+    )
+    problems = check_definition.check(image)
+    assert any("exactly one" in problem for problem in problems)
+
+
+def test_check_catches_a_ui_client_with_a_command_before_the_exec(
+    tmp_path,
+):
+    """F-06: a plain extra command in front of the boot UI
+    exec is a second effective command."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_ui_client(
+        image,
+        'exec python3 -m beerus.bootui "$@"',
+        'python3 -m beerus "$@"\n'
+        'exec python3 -m beerus.bootui "$@"',
+    )
+    problems = check_definition.check(image)
+    assert any("exactly one" in problem for problem in problems)
+
+
+def test_check_catches_a_ui_client_with_a_command_after_the_exec(
+    tmp_path,
+):
+    """F-06: a command parked after the boot UI exec is still
+    a second effective command in the client — its shape is
+    exactly one command, as written."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_ui_client(
+        image,
+        'exec python3 -m beerus.bootui "$@"\n',
+        'exec python3 -m beerus.bootui "$@"\necho done\n',
+    )
+    problems = check_definition.check(image)
+    assert any("exactly one" in problem for problem in problems)
+
+
+def test_check_catches_a_hook_without_the_bootui_proof(tmp_path):
+    """The build must prove the staged boot UI is in the image,
+    in the hook's established form — a missing proof means an
+    image could ship with no graphical session in it."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    hook = image / "config/hooks/live/0900-beerus.hook.chroot"
+    text = hook.read_text(encoding="utf-8")
+    block = (
+        "if [ ! -f /opt/beerus/beerus/bootui/app.py ]; then\n"
+        '  echo "beerus hook: /opt/beerus/beerus/bootui/app.py is missing." >&2\n'
+        '  echo "beerus hook: staging did not run — build through image/build.sh, which stages first." >&2\n'
+        "  exit 1\n"
+        "fi\n\n"
+    )
+    assert block in text
+    hook.write_text(text.replace(block, ""), encoding="utf-8")
+    problems = check_definition.check(image)
+    assert any("boot UI" in problem for problem in problems)
+
+
+# ------------------------------------------------------------------
+# Phase 4 re-audit: capture integrity, path-condition crediting,
+# and the strict start-script grammar (R-01..R-05)
+# ------------------------------------------------------------------
+
+_STATUS_GUARDS = (
+    '  if [ "$beerus_status" -eq 0 ]; then\n'
+    "    exit 0\n"
+    "  fi\n"
+    '  if [ "$beerus_status" -eq 2 ]; then\n'
+    "    exit 2\n"
+    "  fi\n"
+)
+
+
+def test_check_catches_a_status_variable_reassigned_after_capture(
+    tmp_path,
+):
+    """Re-audit R-01 (mutation v04c): a second assignment to
+    the captured variable (``beerus_status=0``) after the
+    capture replaces the graphical session's real outcome
+    with a made-up one — refusal and failure alike would read
+    as success. The variable must be assigned exactly once."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        "  beerus_status=$?\n",
+        "  beerus_status=$?\n  beerus_status=0\n",
+    )
+    problems = check_definition.check(image)
+    assert any("more than once" in problem for problem in problems)
+
+
+def test_check_catches_a_capture_separated_from_startx(tmp_path):
+    """Re-audit R-01: the capture must be the very next
+    statement after the startx run — anything in between
+    leaves open whether $? still holds the session's own
+    outcome when it is read."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        "startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty\n"
+        "  beerus_status=$?\n",
+        "startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty\n"
+        "  echo starting\n"
+        "  beerus_status=$?\n",
+    )
+    problems = check_definition.check(image)
+    assert any(
+        "immediately after startx" in problem for problem in problems
+    )
+
+
+def test_check_catches_a_literal_status_assignment(tmp_path):
+    """Re-audit R-01: a "capture" assigned a literal instead
+    of $? holds a made-up outcome from the start."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(image, "beerus_status=$?", "beerus_status=0")
+    problems = check_definition.check(image)
+    assert any("does not capture" in problem for problem in problems)
+
+
+def test_check_catches_a_function_wrapped_startx(tmp_path):
+    """Re-audit R-01 (mutation v08b): startx wrapped in a
+    function whose last command is an echo — the capture after
+    the call reads the function's status (echo's 0), so a
+    refusal or failure reads as success. Function definitions
+    are outside the start scripts' strict grammar entirely."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        "  startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty\n",
+        "  run_gui() {\n"
+        "    startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty\n"
+        "    echo started\n"
+        "  }\n"
+        "  run_gui\n",
+    )
+    problems = check_definition.check(image)
+    assert any(
+        "function definition" in problem for problem in problems
+    )
+
+
+def test_check_catches_a_subshell_startx(tmp_path):
+    """Strict grammar: a subshell around the startx run is a
+    construct the checker does not model — refused, never
+    silently skipped."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        "  startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty\n",
+        "  ( startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty )\n",
+    )
+    problems = check_definition.check(image)
+    assert any("subshell" in problem for problem in problems)
+
+
+def test_check_catches_a_backquote_substitution_in_the_launcher(
+    tmp_path,
+):
+    """Strict grammar (R-05's class, in beerus-live): command
+    substitution anywhere in a start script is refused,
+    backquote spelling included."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        "  beerus_status=$?\n",
+        "  beerus_status=$?\n  STAMP=`date`\n",
+    )
+    problems = check_definition.check(image)
+    assert any(
+        "command substitution" in problem for problem in problems
+    )
+
+
+def test_check_catches_a_case_statement_in_the_launcher(tmp_path):
+    """Strict grammar: a ``case`` dispatch on the captured
+    status is unmodelled — refused, however correct it looks."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        _STATUS_GUARDS,
+        '  case "$beerus_status" in\n'
+        "    0) exit 0 ;;\n"
+        "    2) exit 2 ;;\n"
+        "  esac\n",
+    )
+    problems = check_definition.check(image)
+    assert any("case statement" in problem for problem in problems)
+
+
+def test_check_catches_an_exit_two_in_a_dead_inner_branch(tmp_path):
+    """Re-audit R-02 (mutation v02d): ``exit 2`` in the inner
+    then-branch nested in the ELSE of the very test it must
+    satisfy — its path condition (status not 2, and status 2)
+    is empty, so it can never fire when a refusal happens.
+    Crediting judges every enclosing branch, not the
+    innermost one alone."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        _STATUS_GUARDS,
+        '  if [ "$beerus_status" -eq 0 ]; then\n'
+        "    exit 0\n"
+        "  fi\n"
+        '  if [ "$beerus_status" -eq 2 ]; then\n'
+        "    echo refused\n"
+        "  else\n"
+        '    if [ "$beerus_status" -eq 2 ]; then\n'
+        "      exit 2\n"
+        "    fi\n"
+        "  fi\n",
+    )
+    problems = check_definition.check(image)
+    assert any("does not exit 2" in problem for problem in problems)
+
+
+def test_check_catches_an_exit_two_bound_to_the_wrong_elif_code(
+    tmp_path,
+):
+    """Re-audit F-02 family (mutation v01b): an elif binding
+    ``exit 2`` to status 1 — the exit's path condition is
+    exactly {1}, never {2}."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        _STATUS_GUARDS,
+        '  if [ "$beerus_status" -eq 0 ]; then\n'
+        "    exit 0\n"
+        '  elif [ "$beerus_status" -eq 1 ]; then\n'
+        "    exit 2\n"
+        "  fi\n",
+    )
+    problems = check_definition.check(image)
+    assert any("does not exit 2" in problem for problem in problems)
+
+
+def test_check_catches_an_exit_two_in_the_else_of_an_elif_chain(
+    tmp_path,
+):
+    """Mutation v01c: ``exit 2`` parked in the else of an elif
+    chain fires on every outcome that is neither 0 nor 2 —
+    its path condition is the fallback set, not {2}."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        _STATUS_GUARDS,
+        '  if [ "$beerus_status" -eq 0 ]; then\n'
+        "    exit 0\n"
+        '  elif [ "$beerus_status" -eq 2 ]; then\n'
+        "    echo refused\n"
+        "  else\n"
+        "    exit 2\n"
+        "  fi\n",
+    )
+    problems = check_definition.check(image)
+    assert any("does not exit 2" in problem for problem in problems)
+
+
+def test_check_catches_a_chained_exit_bound_to_the_wrong_code(
+    tmp_path,
+):
+    """Mutation v03c: the ``&&``-chained form binds by the
+    test in front of it — ``[ status -eq 0 ] && exit 2``
+    honors 2 exactly when the outcome is 0, which is the lie
+    in chained spelling."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        _STATUS_GUARDS,
+        '  [ "$beerus_status" -eq 0 ] && exit 2\n'
+        '  if [ "$beerus_status" -eq 0 ]; then\n'
+        "    exit 0\n"
+        "  fi\n",
+    )
+    problems = check_definition.check(image)
+    assert any("does not exit 2" in problem for problem in problems)
+
+
+def test_check_catches_a_chained_exit_behind_an_unrelated_command(
+    tmp_path,
+):
+    """Mutation v03b: a test on its own line binds nothing —
+    the ``exit 0`` chained behind an unrelated echo runs
+    whenever the echo succeeds, whatever the status was."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        _STATUS_GUARDS,
+        '  [ "$beerus_status" -eq 0 ]\n'
+        "  echo hi && exit 0\n"
+        '  if [ "$beerus_status" -eq 2 ]; then\n'
+        "    exit 2\n"
+        "  fi\n",
+    )
+    problems = check_definition.check(image)
+    assert any("does not exit 0" in problem for problem in problems)
+
+
+def test_check_catches_exits_bound_to_a_different_variable(tmp_path):
+    """Mutation v04b: the guards test a variable that was
+    never captured — they bind nothing about the graphical
+    session's outcome."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image, '"$beerus_status" -eq', '"$other_status" -eq'
+    )
+    problems = check_definition.check(image)
+    assert any("does not exit 0" in problem for problem in problems)
+
+
+def test_check_catches_a_fallback_exec_in_the_else_branch(tmp_path):
+    """Re-audit R-03 (mutation v05): the text form's exec in
+    the ELSE of the status==0 test, with the notices moved in
+    front of the graphical attempt. Status 2 reaches the exec
+    before its own guard (the refusal is lost), and the
+    notices print unconditionally — program order alone does
+    not make an exec the fallback."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    launcher = image / _LAUNCHER
+    text = launcher.read_text(encoding="utf-8")
+    text = text.replace(_NOTICE_1 + _NOTICE_2, "")
+    text = text.replace(
+        "if command -v startx",
+        _NOTICE_1 + _NOTICE_2 + "if command -v startx",
+    )
+    text = text.replace(
+        _STATUS_GUARDS,
+        '  if [ "$beerus_status" -eq 0 ]; then\n'
+        "    exit 0\n"
+        "  else\n"
+        '    exec python3 -m beerus "$@"\n'
+        "  fi\n"
+        '  if [ "$beerus_status" -eq 2 ]; then\n'
+        "    exit 2\n"
+        "  fi\n",
+    )
+    launcher.write_text(text, encoding="utf-8")
+    problems = check_definition.check(image)
+    assert any("notice" in problem for problem in problems)
+    assert any("does not exit 2" in problem for problem in problems)
+
+
+def test_check_catches_a_fallback_exec_that_preempts_the_refusal_guard(
+    tmp_path,
+):
+    """Re-audit R-03 (mutation v05b): the else-branch exec
+    with the notices left in place. The exec still pre-empts
+    the status==2 guard, and after it no outcome reaches the
+    notices at all — neither the exec nor the notices stand
+    on the path every other outcome takes."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        _STATUS_GUARDS,
+        '  if [ "$beerus_status" -eq 0 ]; then\n'
+        "    exit 0\n"
+        "  else\n"
+        '    exec python3 -m beerus "$@"\n'
+        "  fi\n"
+        '  if [ "$beerus_status" -eq 2 ]; then\n'
+        "    exit 2\n"
+        "  fi\n",
+    )
+    problems = check_definition.check(image)
+    assert any("notice" in problem for problem in problems)
+    assert any("text form" in problem for problem in problems)
+
+
+def test_check_catches_notices_inside_a_status_branch(tmp_path):
+    """Re-audit R-04 (mutation w02b): the notices wrapped in
+    ``if [ status -eq 1 ]`` print only for status 1 — every
+    other fallback outcome (status 3, startx absent) would
+    run the text form in silence."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        _NOTICE_1 + _NOTICE_2,
+        'if [ "$beerus_status" -eq 1 ]; then\n'
+        + _NOTICE_1
+        + _NOTICE_2
+        + "fi\n",
+    )
+    problems = check_definition.check(image)
+    assert any("notice" in problem for problem in problems)
+
+
+def test_check_catches_notices_inside_an_unrelated_branch(tmp_path):
+    """Re-audit R-04 (mutation w02c): the notices inside a
+    branch on an unrelated variable are conditional by
+    construction — the fallback path itself is unconditional,
+    and only notices standing on it count."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        _NOTICE_1 + _NOTICE_2,
+        'if [ -n "$HOME" ]; then\n' + _NOTICE_1 + _NOTICE_2 + "fi\n",
+    )
+    problems = check_definition.check(image)
+    assert any("notice" in problem for problem in problems)
+
+
+def test_check_catches_a_ui_pythonpath_built_by_substitution(tmp_path):
+    """Re-audit R-05 (mutation w04d): a command substitution
+    appended to a valid PYTHONPATH component in beerus-ui —
+    inside the quoted value, where the segmenter never splits
+    it. It would run a second, arbitrary command inside the
+    client whose whole checked shape is one command."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_ui_client(
+        image,
+        'PYTHONPATH="/opt/beerus${PYTHONPATH:+:$PYTHONPATH}"',
+        'PYTHONPATH="/opt/beerus:$(touch /tmp/beerus-marker)"',
+    )
+    problems = check_definition.check(image)
+    assert any(
+        "command substitution" in problem
+        or "not written out in full" in problem
+        for problem in problems
+    )
+
+
+def test_check_catches_a_ui_pythonpath_from_another_variable(tmp_path):
+    """Re-audit R-05, variable form: the path value pulls in
+    another variable — the path the check proves would not
+    be the path that runs."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_ui_client(
+        image,
+        'PYTHONPATH="/opt/beerus${PYTHONPATH:+:$PYTHONPATH}"',
+        'PYTHONPATH="/opt/beerus:$HOME/beerus"',
+    )
+    problems = check_definition.check(image)
+    assert any(
+        "not written out in full" in problem for problem in problems
+    )
+
+
+def test_check_accepts_guards_written_as_and_chains(tmp_path):
+    """Re-audit R-07(a), resolved: the ``&&``-chained guard
+    form is credited under the same path model — the test in
+    front of the exit contributes its then-set to the chained
+    statement."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        _STATUS_GUARDS,
+        '  [ "$beerus_status" -eq 0 ] && exit 0\n'
+        '  [ "$beerus_status" -eq 2 ] && exit 2\n',
+    )
+    problems = check_definition.check(image)
+    assert problems == []
+
+
+def test_check_accepts_guards_written_as_an_elif_chain(tmp_path):
+    """Mutation v01a, a correct launcher: one if/elif chain
+    binding each exit to its own code."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        _STATUS_GUARDS,
+        '  if [ "$beerus_status" -eq 0 ]; then\n'
+        "    exit 0\n"
+        '  elif [ "$beerus_status" -eq 2 ]; then\n'
+        "    exit 2\n"
+        "  fi\n",
+    )
+    problems = check_definition.check(image)
+    assert problems == []
+
+
+def test_check_accepts_a_guard_nested_in_the_other_codes_else(
+    tmp_path,
+):
+    """Mutation v02a, a correct launcher: ``exit 0`` tested
+    inside the else of the status==2 test — its path
+    condition (not 2, and 0) entails exactly {0}."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    _mutate_launcher(
+        image,
+        _STATUS_GUARDS,
+        '  if [ "$beerus_status" -eq 2 ]; then\n'
+        "    exit 2\n"
+        "  else\n"
+        '    if [ "$beerus_status" -eq 0 ]; then\n'
+        "      exit 0\n"
+        "    fi\n"
+        "  fi\n",
+    )
+    problems = check_definition.check(image)
+    assert problems == []
+
+
+def test_check_accepts_a_bare_and_chain_launcher(tmp_path):
+    """Positive control for the whole strict form: startx run
+    unconditionally (a missing startx is itself an outcome —
+    127 — and lands in the fallback set), a short variable
+    name, ``&&``-chained guards, then the notices and the
+    exec on the one path every other outcome takes."""
+    _repo, image = _copy_definition_tree(tmp_path)
+    launcher = image / _LAUNCHER
+    launcher.write_text(
+        "#!/bin/sh\n"
+        'PYTHONPATH="/opt/beerus${PYTHONPATH:+:$PYTHONPATH}"\n'
+        "export PYTHONPATH\n"
+        "startx /usr/local/bin/beerus-ui -- :0 vt1 -keeptty\n"
+        "s=$?\n"
+        '[ "$s" -eq 0 ] && exit 0\n'
+        '[ "$s" -eq 2 ] && exit 2\n'
+        + _NOTICE_1
+        + _NOTICE_2
+        + 'exec python3 -m beerus "$@"\n',
+        encoding="utf-8",
+    )
+    problems = check_definition.check(image)
+    assert problems == []

@@ -1,7 +1,7 @@
-# Building the Destruct Key Pro image
+# Building the Live Boot image
 
 The step-by-step for turning this repository's image definition
-(`image/`) into a bootable Destruct Key Pro USB key.
+(`image/`) into a bootable Live Boot USB key.
 
 > **Status, stated plainly:** this definition has been checked
 > for completeness and consistency by the test suite, but the
@@ -16,13 +16,22 @@ The step-by-step for turning this repository's image definition
 
 ## What you end up with
 
-A USB key that boots any machine straight into the Beerus boot
-console: the drive list, the consent gates, the wipe, the
-verification, and the certificate of destruction — with the
-machine's own system never started and no network needed at any
-point. Job documents are written to memory inside the live
-system (never to the key) and the console reminds the operator
-to copy each one off before shutdown.
+A USB key that boots any machine straight into Beerus: the
+drive list, the consent gates, the wipe, the verification, and
+the certificate of destruction — with the machine's own system
+never started and no network needed at any point. The boot
+service's launcher tries the graphical session first (an X
+session running the boot UI); if a graphical session cannot
+start on the machine at hand, it says so in two plain lines
+and continues in the text console inside the same service —
+the same flow in either presentation. The graphical packages
+(X server with the generic framebuffer/VESA drivers, libinput,
+`xinit`, the PySide6 Qt libraries, DejaVu Sans) are in the
+package list for the boot UI alone; the text console needs
+none of them, and the fallback is always available. Job
+documents are written to memory inside the live system (never
+to the key) and Beerus reminds the operator to copy each one
+off before shutdown.
 
 ## The build machine
 
@@ -67,7 +76,7 @@ The checker confirms the definition is complete and internally
 consistent — most importantly that the volume label the build
 sets is the same label the protection code looks for. The test
 suite re-checks the same ground. If either fails, stop: a build
-from an inconsistent definition is not a Destruct Key Pro.
+from an inconsistent definition is not a Live Boot key.
 
 ## Step 4 — Build
 
@@ -137,9 +146,13 @@ Boot a test machine from the key and work through this
 checklist. **Every line must hold before the key is used on a
 job.**
 
-1. The machine boots from the key straight into the Beerus
-   console — no login prompt on the first console, no host
-   system starting.
+1. The machine boots from the key straight into Beerus — no
+   login prompt on the first console, no host system starting.
+   On a machine with working graphics, the graphical session
+   starts: the boot UI opens on the welcome page. The drive
+   list renders the machine's drives, with the key itself
+   greyed and its reason shown (see line 2, which applies in
+   either presentation).
 2. The console lists the machine's drives. **The key itself
    appears marked "cannot be wiped," with the reason that it
    is the drive Beerus booted from.**
@@ -170,6 +183,13 @@ job.**
    only, by design.
 7. **No network:** unplug any network cable and repeat the
    sacrificial job. Nothing about the flow may need the network.
+8. **The fallback, for real:** boot a machine with no working
+   graphics or display (or one where the graphical session
+   cannot start) and confirm the launcher prints its two notice
+   lines — "The graphical session could not start on this
+   machine." and the continuation line — and the text console
+   then serves the full flow: drive list, gates, wipe,
+   verification, document. Documents are still memory-only.
 
 ## If something is wrong
 

@@ -21,6 +21,18 @@ if [ ! -f /opt/beerus/beerus/live.py ]; then
   exit 1
 fi
 
+if [ ! -f /opt/beerus/beerus/bootui/app.py ]; then
+  echo "beerus hook: /opt/beerus/beerus/bootui/app.py is missing." >&2
+  echo "beerus hook: staging did not run — build through image/build.sh, which stages first." >&2
+  exit 1
+fi
+
+if [ ! -f /usr/local/bin/beerus-ui ]; then
+  echo "beerus hook: /usr/local/bin/beerus-ui is missing." >&2
+  echo "beerus hook: the graphical session would have no client to run — the definition is incomplete." >&2
+  exit 1
+fi
+
 if [ ! -f /etc/beerus/live-image.json ]; then
   echo "beerus hook: /etc/beerus/live-image.json is missing." >&2
   echo "beerus hook: staging did not run — build through image/build.sh, which stages first." >&2

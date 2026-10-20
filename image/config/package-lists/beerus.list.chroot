@@ -1,4 +1,4 @@
-# Destruct Key Pro — packages installed in the live image.
+# Live Boot — packages installed in the live image.
 #
 # The Beerus console is pure Python on the standard library, so
 # this list is short on purpose: the interpreter, the drive tools
@@ -27,3 +27,22 @@ nvme-cli
 coreutils
 less
 openssh-client
+
+# The graphical session (Phase 4): the X server core with the
+# generic framebuffer and VESA drivers (they run on hardware
+# with no native driver, which is most machines a key is plugged
+# into), libinput for keyboards and pointers, xinit for startx
+# (the launcher's way in), the PySide6 Qt libraries the boot UI
+# is built on, and DejaVu Sans — the font the boot UI's stack
+# names for this image. The text console needs none of this:
+# when a graphical session cannot start, the launcher falls
+# back to the console, which is always available.
+xserver-xorg-core
+xserver-xorg-input-libinput
+xserver-xorg-video-fbdev
+xserver-xorg-video-vesa
+xinit
+python3-pyside6.qtcore
+python3-pyside6.qtgui
+python3-pyside6.qtwidgets
+fonts-dejavu-core

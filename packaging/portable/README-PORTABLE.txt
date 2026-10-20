@@ -6,7 +6,7 @@ WHAT THIS IS
 Beerus Portable is the app edition of Beerus, Sentinel's secure
 drive-destruction tool - the same engine, the same NIST 800-88
 methods, the same consent gates, the same verification and
-certificates as the Destruct Key Pro boot key, in a folder that
+certificates as the Live Boot key, in a folder that
 runs on a Windows machine that is already switched on. No
 install, no Python on the machine: unzip it anywhere, including
 a USB stick, and run Beerus.exe.
@@ -102,7 +102,7 @@ WHERE THINGS ARE WRITTEN (honest list)
 
 THE OTHER FORM
 --------------
-The Destruct Key Pro - this same repository as a bootable USB
+Live Boot - this same repository as a bootable USB
 key - remains the tool for machines that are off, unbootable,
 or being decommissioned whole. One engine, two forms; the
 paperwork standard is the same on both.

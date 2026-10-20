@@ -1,4 +1,4 @@
-"""The Destruct Key Pro boot console.
+"""The Live Boot console.
 
 This is the entry point the live image starts at boot (see
 ``image/`` in this repository): a plain terminal session that runs
@@ -7,7 +7,8 @@ verify, and issue the job document. It is deliberately *not* a
 second interface over the engine: every step goes through the same
 ``GateAuthority``, ``WipeEngine``, ``WipeVerifier``, and
 certificate code the portable app uses, and the Phase 4 boot UI
-will sit on these same flows.
+sits on these same flows: on the live image the graphical
+session boots first, and this console is its designed fallback.
 
 Arming law, enforced in ``build_live_engine`` itself:
 
@@ -54,14 +55,14 @@ from beerus.methods import select_plan
 from beerus.verify import DeviceSurfaceReader, VerificationVerdict, WipeVerifier
 
 _NOT_LIVE_MESSAGE = (
-    "This copy of Beerus is not running from the Destruct Key Pro "
-    "live image, so it will not arm the drive wiper. The boot "
-    "console only runs on the key itself."
+    "This copy of Beerus is not running from the Live Boot "
+    "image, so it will not arm the drive wiper. The boot "
+    "console only runs on the Live Boot key itself."
 )
 
 _NOT_ROOT_MESSAGE = (
     "The boot console must run as the system's root session, the "
-    "way the Destruct Key Pro starts it. It will not arm the "
+    "way the Live Boot key starts it. It will not arm the "
     "drive wiper from a lesser session."
 )
 
@@ -137,11 +138,11 @@ def _human_size(size_bytes: int) -> str:
 
 
 def _say_welcome(io: ConsoleIO, documents_dir: str) -> None:
-    io.say("BEERUS — Destruct Key Pro")
+    io.say("BEERUS — Live Boot")
     io.say("Secure drive destruction — Sentinel Safeguard LLC")
     io.say("")
     io.say(
-        "This machine booted from the Destruct Key Pro. The key "
+        "This machine booted from the Live Boot key. The key "
         "itself can never be wiped, and no drive is touched until "
         "you choose one and complete the confirmation steps."
     )

@@ -12,7 +12,7 @@ so the same physical drive keeps the same identity.
 Boot-device note: a disk counts as the boot device when the mount
 tree says so (a partition mounted at a system mountpoint), when a
 partition sits at a live-boot medium mountpoint, OR when any of its
-partitions carries the Destruct Key Pro volume label baked into the
+partitions carries the Live Boot volume label baked into the
 image at build time (see ``beerus.bootmedium``). The label layer is
 independent of mounts: labels are readable from ``lsblk`` without
 mounting anything, so a boot partition that was never mounted —

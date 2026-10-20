@@ -1,4 +1,4 @@
-"""Run the Destruct Key Pro boot console: ``python3 -m beerus``.
+"""Run the Live Boot console: ``python3 -m beerus``.
 
 A thin shim over ``beerus.live.main`` so the live image's
 launcher has a single, obvious entry point. All of the behavior

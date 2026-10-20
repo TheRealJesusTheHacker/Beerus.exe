@@ -1,5 +1,5 @@
 #!/bin/sh
-# build.sh — build the Destruct Key Pro live image.
+# build.sh — build the Live Boot live image.
 #
 # Run this ON A REAL BUILD MACHINE (a Debian bookworm host with
 # room to work), as root:
@@ -56,7 +56,7 @@ lb config \
   --distribution bookworm \
   --archive-areas "main contrib non-free non-free-firmware" \
   --binary-images iso-hybrid \
-  --iso-application "Destruct Key Pro" \
+  --iso-application "Beerus Live Boot" \
   --iso-volume "BEERUS_KEY" \
   --iso-publisher "Sentinel Safeguard LLC" \
   --bootappend-live "boot=live components hostname=beerus-key username=user locales=en_US.UTF-8 keyboard-layouts=us beerus.live=1" \

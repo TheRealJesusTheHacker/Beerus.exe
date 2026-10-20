@@ -6,7 +6,7 @@ first** — destruction that can't prove what it's about to destroy
 doesn't ship, and the bootable image comes only after the engine
 has earned it.
 
-**The one job:** boot any machine from the Destruct Key Pro, pick
+**The one job:** boot any machine from Live Boot, pick
 a drive, destroy its data to NIST 800-88, verify the result, and
 hand over a certificate of destruction.
 
@@ -560,20 +560,91 @@ plugs into `beerus.live`'s flows rather than replacing them.
 
 ## Phase 4 — The boot-environment UI
 
-- Futuristic animated interface (PySide6 family), green on
-  black, premium and calm — it runs in front of clients on
-  decommissioning jobs, and it looks like it belongs there.
+- Futuristic animated interface (PySide6 family), premium and
+  calm — it runs in front of clients on decommissioning jobs,
+  and it looks like it belongs there.
 - **The consent gates at full prominence:** model, serial,
   method, and scope presented as the main event of the flow, not
   fine print — every control functional, no decorative buttons.
 - Plain language throughout; every failure state a designed
   screen with one clear next action.
 - The portable app (Phase 2.5) is the first shipped UI over
-  this engine; the boot UI reuses its gate presentation and
-  gains the file/folder and free-space modes from
-  `beerus.filewipe`.
+  this engine; the boot UI reuses its gate presentation.
 
-**Status: PLANNED.**
+**Status: COMPLETE — boot UI shipped in v0.6.0 (2026-10-20).**
+
+As built:
+
+- **The UI over `beerus.live`'s flows** (`beerus.bootui`):
+  welcome (operator name, the memory-only documents warning),
+  drive list (eligibility reasons on the greyed rows; the
+  Start button can never light for an ineligible row), the
+  identity, scope, and final-phrase gates in the portable's
+  presentation and the console's words, the wipe on a worker
+  thread with the engine's own progress (a percentage only
+  when an event carries one; a firmware erase runs a busy bar
+  and no invented number), and the console's exact result and
+  document wording, including the NOT-sanitized states. Every
+  refusal lands on a designed message page. A ~150 ms fade
+  marks page changes — visual only, never blocking. The
+  window refuses to close while a wipe runs.
+  `beerus.live.build_live_engine` remains the only arming
+  site: the UI contains no arming code, constructs no
+  executor, and shows the builder's refusal in a refusal
+  window (exit 2); a machine with no graphical session at all
+  exits 76.
+- **The fallback design, and how it stays honest:** the
+  launcher (`beerus-live`) tries the graphical session first
+  and falls back to the text console inside the same service.
+  The honesty mechanism is placement: the *launcher* states
+  the fallback (two plain lines before the console starts);
+  the console itself states nothing about graphics, so nothing
+  it says can be wrong on a machine where graphics started
+  fine; and the UI's welcome line "Graphical session" is true
+  by construction — the page can only render inside a running
+  graphical session. Exit codes are honored exactly: 0 clean,
+  2 a final designed refusal, anything else the fallback.
+- **Beerus's own palette:** by the owner's namesake exception
+  for this tool (2026-10-20 — purple for Beerus "because it's
+  appropriate"), the boot UI is deep violet-black, Beerus
+  violet, and destruction gold — not the fleet green/black —
+  with the erase action in true danger red. Every text
+  pairing is computed and pinned ≥ 4.5:1, and the constants
+  are literal-pinned in the palette tests. The portable app
+  keeps the fleet palette, unchanged.
+- **Definition changes:** graphical-session packages in the
+  package list (X core, framebuffer/VESA, libinput, `xinit`,
+  PySide6 Qt, DejaVu Sans — the console needs none of them);
+  the new `beerus-ui` client; the build hook proves the staged
+  boot UI and the client; staging requires the boot UI
+  package; and `check_definition.py` verifies the design
+  semantically (startx client, status capture, both honored
+  exit codes, fallback exec last, hook proof), with mutation
+  tests for each failure shape.
+- **Mode disposition, stated plainly:** the Phase 4 sketch
+  mentioned surfacing the file/folder and free-space modes in
+  the boot UI. The shipped boot UI presents the boot line's
+  whole-drive flow — the flow Phase 3 built and the portable's
+  gate presentation mirrors. The file/free-space engines
+  remain available from `beerus.filewipe` with no second
+  implementation, for a future boot-UI extension.
+- **Tests:** 43 new in the build (boot-UI theme, boot-UI GUI,
+  boot-UI session + launcher, image-definition), with the
+  audit and re-audit rounds adding their regression batteries
+  on top; at the final gate — merged onto the v0.5.1 kit-hunt
+  tree — the suite stands at 756 passed (1 skipped: a Windows
+  junction case, by design off Windows). All against synthetic
+  targets; the real executor stays two-factor disarmed
+  everywhere in them.
+- **Renamed in this phase (owner direction, 2026-10-20):**
+  the bootable form's display name, "Destruct Key Pro" →
+  **Live Boot**, across the boot UI, the console, the image
+  definition's display strings, and present-tense docs.
+  Functional identity did not move: the `BEERUS_KEY` volume
+  label, the `beerus-key` hostname, the live-image marker, and
+  the unit/file names are the key's self-protection, not its
+  display name. Earlier phases' narrative keeps the name of
+  its time.
 
 ## Phase 5 — Hardware image build + field validation
 
@@ -585,9 +656,18 @@ plugs into `beerus.live`'s flows rather than replacing them.
   drives of each type (SATA SSD, NVMe, spinning HDD) —
   destruction, verification pass, and certificate checked end to
   end against the announced scope.
-- **Signed release images:** the shippable Destruct Key Pro image
+- **Signed release images:** the shippable Live Boot image
   is signed and checksummed, so a key in the field can be
   verified as a genuine Sentinel build.
+- **Graphical boot on real hardware (Phase 4 carry-forward):**
+  the graphical session starting on a real machine, the drive
+  list rendering, and a full job run through the boot UI.
+- **The fallback, triggered for real:** boot a machine whose
+  graphics cannot start and confirm the launcher's notice and
+  the text console serve the full flow.
+- **Package truth at first build:** Qt/PySide6 package
+  availability in the bookworm archive, confirmed when the
+  image is first assembled.
 
 **Status: PLANNED.**
 

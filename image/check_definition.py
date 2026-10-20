@@ -1,4 +1,4 @@
-"""Check the Destruct Key Pro image definition for completeness.
+"""Check the Live Boot image definition for completeness.
 
 This is the furthest validation that can run without a build
 machine: it verifies that the definition in ``image/`` is whole
@@ -37,6 +37,7 @@ _REQUIRED_FILES = (
     "config/includes.chroot/etc/hostname",
     "config/includes.chroot/etc/systemd/system/beerus-live.service",
     "config/includes.chroot/usr/local/bin/beerus-live",
+    "config/includes.chroot/usr/local/bin/beerus-ui",
     "config/hooks/live/0900-beerus.hook.chroot",
 )
 
@@ -52,6 +53,18 @@ _REQUIRED_PACKAGES = (
     "hdparm",
     "nvme-cli",
     "openssh-client",
+    # The graphical session (Phase 4): the X server and its
+    # generic drivers, the startx way in, the Qt libraries the
+    # boot UI runs on, and its font.
+    "xserver-xorg-core",
+    "xserver-xorg-input-libinput",
+    "xserver-xorg-video-fbdev",
+    "xserver-xorg-video-vesa",
+    "xinit",
+    "python3-pyside6.qtcore",
+    "python3-pyside6.qtgui",
+    "python3-pyside6.qtwidgets",
+    "fonts-dejavu-core",
 )
 
 # Every package the image is allowed to carry — the definition's
@@ -72,6 +85,15 @@ _ALLOWED_PACKAGES = frozenset(
         "coreutils",
         "less",
         "openssh-client",
+        "xserver-xorg-core",
+        "xserver-xorg-input-libinput",
+        "xserver-xorg-video-fbdev",
+        "xserver-xorg-video-vesa",
+        "xinit",
+        "python3-pyside6.qtcore",
+        "python3-pyside6.qtgui",
+        "python3-pyside6.qtwidgets",
+        "fonts-dejavu-core",
     }
 )
 
@@ -2252,6 +2274,897 @@ def _hook_file_proven(segments: list[_Segment], path: str) -> bool:
     return _first_proven_index(segments, path) is not None
 
 
+# ------------------------------------------------------------------
+# The graphical-first launcher (Phase 4)
+#
+# beerus-live tries the graphical session first and falls back
+# to the text form when it cannot start. That design has four
+# load-bearing facts, and they are checked the way the shell
+# runs them — from the analysed command segments, in program
+# order — never as substrings a comment or an echo could
+# satisfy:
+#
+# 1. a startx run whose client is /usr/local/bin/beerus-ui,
+#    run in the foreground — a backgrounded or pipelined
+#    startx reports its launch result, never the session's
+#    own exit code;
+# 2. the run's exit status captured ($? into a variable) by
+#    the very next statement after the startx run, and that
+#    variable assigned nowhere else in the script — without
+#    the capture there is nothing to honor, a ``||`` straight
+#    after startx swallows the status outright, and a second
+#    assignment would replace the session's outcome with a
+#    made-up one before any test reads it;
+# 3. both terminal codes honored, each credited only when
+#    every status outcome that can reach the matching exit
+#    is that code — judged on path conditions (the conjunction
+#    of the branch conditions enclosing the exit, in the
+#    set model of ``_launcher_walk``), so an exit parked in an
+#    else branch, a dead inner branch, or behind a test of
+#    something else honors nothing;
+# 4. the text form's exec present AFTER the graphical attempt
+#    and still the final command, so the fallback is the
+#    designed end of the script — its exit code is the
+#    service's exit code;
+# 5. the two designed notice lines printed, in order, before
+#    that exec — the operator is told the graphical session
+#    could not start and what runs instead.
+# ------------------------------------------------------------------
+
+_STATUS_CAPTURE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=\$\?$")
+
+_GUI_CLIENT = "/usr/local/bin/beerus-ui"
+
+# The two notice lines beerus-live prints before it falls back
+# to the text session — exact wording, in this order. They are
+# a designed honesty element: the operator is told, in plain
+# words, that the graphical session could not start and what
+# runs instead. A missing line, or one rewritten to claim the
+# graphical session, leaves the fallback silent or lying.
+_NOTICE_LINES = (
+    "The graphical session could not start on this machine.",
+    "Beerus is continuing in its text console — the same "
+    "confirmation steps, the same engine, the same job documents.",
+)
+
+
+def _launcher_grammar_problems(text: str, name: str) -> list[str]:
+    """Problems with a start script's grammar.
+
+    ``beerus-live`` and ``beerus-ui`` are short, fixed-form,
+    Sentinel-owned scripts, and the checks below model them
+    exactly — so any construct the model cannot prove is
+    refused outright, never silently skipped: function
+    definitions, subshells, command substitution (``$(...)``
+    or backquotes, anywhere, assignments included — a quoted
+    value hides one from the segmenter), pipelines,
+    backgrounding, and ``case`` statements. ``&&`` chains are
+    modelled and stay allowed; redirections (``2>&1`` and
+    friends) are not backgrounding.
+    """
+    found: list[str] = []
+
+    def note(label: str) -> None:
+        if label not in found:
+            found.append(label)
+
+    code = []
+    for raw in _drop_heredoc_bodies(text.splitlines()):
+        line = raw.strip()
+        if line and not line.startswith("#"):
+            code.append(_strip_shell_comment(line))
+    for line in _logical_lines(code):
+        if re.search(
+            r"(?:^|[;|&]\s*)(?:function\s+)?"
+            r"[A-Za-z_][A-Za-z0-9_]*\s*\(\s*\)",
+            line,
+        ) or re.search(r"(?:^|[;|&]\s*)function\s+[A-Za-z_]", line):
+            note("a function definition")
+        if re.search(r"(?:^|[;|&]\s*)case\s", line):
+            note("a case statement")
+        in_single = False
+        in_double = False
+        escaped = False
+        index = 0
+        while index < len(line):
+            ch = line[index]
+            if escaped:
+                escaped = False
+            elif ch == "\\" and not in_single:
+                escaped = True
+            elif ch == "'" and not in_double:
+                in_single = not in_single
+            elif ch == '"' and not in_single:
+                in_double = not in_double
+            elif not in_single:
+                if ch == "`" or (
+                    ch == "$" and line[index + 1 : index + 2] == "("
+                ):
+                    note("command substitution")
+                elif not in_double:
+                    if ch in "()":
+                        note("a subshell (a parenthesised command group)")
+                    elif ch == "|":
+                        note("a pipeline")
+                    elif ch == "&":
+                        following = line[index + 1 : index + 2]
+                        previous = line[index - 1] if index else ""
+                        if following == "&":
+                            index += 1  # a && chain is modelled
+                        elif (
+                            previous != ">"
+                            and following not in (">", "-")
+                            and not following.isdigit()
+                        ):
+                            note("backgrounding (a bare &)")
+            index += 1
+    return [
+        f"{name} uses {label}, which is outside the strict form "
+        "the definition check can prove for the start scripts — "
+        "a construct the check cannot model exactly is refused, "
+        "never silently skipped."
+        for label in found
+    ]
+
+
+# The path-condition model for the captured status. A statement
+# is credited only from the set of status outcomes that can
+# actually reach it: the conjunction of the branch conditions
+# enclosing it, narrowed by the guards already passed on the
+# way. Outcomes are tracked over the integers plus one extra
+# outcome — the variable unset (startx missing entirely) — as
+# a set that is either finite (these codes) or cofinite (every
+# code except these).
+
+
+class _StatusSet(NamedTuple):
+    finite: bool  # True: vals are included; False: vals are excluded
+    vals: frozenset
+    absent: bool  # the variable-unset outcome is in the set
+
+
+_SS_EMPTY = _StatusSet(True, frozenset(), False)
+_SS_ABSENT = _StatusSet(True, frozenset(), True)
+_SS_ALL_CODES = _StatusSet(False, frozenset(), False)
+_SS_UNIVERSE = _StatusSet(False, frozenset(), True)
+
+
+def _ss_singleton(code: int) -> _StatusSet:
+    return _StatusSet(True, frozenset({code}), False)
+
+
+def _ss_intersect(a: _StatusSet, b: _StatusSet) -> _StatusSet:
+    if a.finite and b.finite:
+        return _StatusSet(True, a.vals & b.vals, a.absent and b.absent)
+    if a.finite:
+        return _StatusSet(True, a.vals - b.vals, a.absent and b.absent)
+    if b.finite:
+        return _StatusSet(True, b.vals - a.vals, a.absent and b.absent)
+    return _StatusSet(False, a.vals | b.vals, a.absent and b.absent)
+
+
+def _ss_union(a: _StatusSet, b: _StatusSet) -> _StatusSet:
+    absent = a.absent or b.absent
+    if a.finite and b.finite:
+        return _StatusSet(True, a.vals | b.vals, absent)
+    if a.finite:
+        return _StatusSet(False, b.vals - a.vals, absent)
+    if b.finite:
+        return _StatusSet(False, a.vals - b.vals, absent)
+    return _StatusSet(False, a.vals & b.vals, absent)
+
+
+def _ss_complement(a: _StatusSet) -> _StatusSet:
+    return _StatusSet(not a.finite, a.vals, not a.absent)
+
+
+def _ss_is_empty(a: _StatusSet) -> bool:
+    return a.finite and not a.vals and not a.absent
+
+
+def _is_fallback_set(a: _StatusSet) -> bool:
+    """True when *a* is exactly "every outcome except the two
+    honored codes" — the full set of outcomes that must reach
+    the text form (the variable-unset outcome may or may not
+    be among them, depending on how the attempt was guarded)."""
+    return not a.finite and a.vals == frozenset({0, 2})
+
+
+def _test_mentions_variable(tokens: list[str], variable: str) -> bool:
+    pattern = re.compile(
+        r"\$(?:\{"
+        + re.escape(variable)
+        + r"\}|"
+        + re.escape(variable)
+        + r"(?![A-Za-z0-9_]))"
+    )
+    return any(pattern.search(token) for token in tokens)
+
+
+def _status_atom_then(atom: list[str], variable: str):
+    """The then-set of one ``[ ... ]`` atom that tests only the
+    captured variable in a modelled comparison (``-eq``, ``-ne``,
+    ``=``, ``==``, ``!=`` against a literal, or the variable's
+    mere presence), or None when the atom is anything else."""
+    negated = False
+    while atom and atom[0] == "!":
+        negated = not negated
+        atom = atom[1:]
+    refs = (f"${variable}", f"${{{variable}}}")
+    result = None
+    if len(atom) == 1 and atom[0] in refs:
+        result = _SS_ALL_CODES
+    elif len(atom) == 2 and atom[1] in refs and atom[0] in ("-n", "-z"):
+        result = _SS_ALL_CODES if atom[0] == "-n" else _SS_ABSENT
+    elif len(atom) == 3:
+        left, op, right = atom
+        literal = None
+        if left in refs:
+            literal = right
+        elif right in refs:
+            literal = left
+        if literal is not None and op in ("-eq", "-ne", "=", "==", "!="):
+            try:
+                number = int(literal)
+            except ValueError:
+                number = None
+            if op in ("-eq", "-ne"):
+                if number is None:
+                    return None
+                result = (
+                    _ss_singleton(number)
+                    if op == "-eq"
+                    else _StatusSet(False, frozenset({number}), False)
+                )
+            elif number is not None:
+                result = (
+                    _ss_singleton(number)
+                    if op in ("=", "==")
+                    else _StatusSet(False, frozenset({number}), True)
+                )
+            else:
+                result = _SS_EMPTY if op in ("=", "==") else _SS_UNIVERSE
+    if result is None:
+        return None
+    return _ss_complement(result) if negated else result
+
+
+def _status_test_then(tokens: list[str], variable: str):
+    """The then-set of a ``[ ... ]``/``test`` condition whose
+    every atom tests only the captured variable (atoms combined
+    with ``-a``/``-o`` included), or None when it is not such a
+    test. The else-set is the complement of the then-set."""
+    if not tokens:
+        return None
+    head = _basename(tokens[0])
+    if head in ("[", "[["):
+        inner = list(tokens[1:])
+        if inner and inner[-1] in ("]", "]]"):
+            inner.pop()
+    elif head == "test":
+        inner = list(tokens[1:])
+    else:
+        return None
+    if not inner:
+        return None
+    negated = False
+    while inner and inner[0] == "!":
+        negated = not negated
+        inner = inner[1:]
+    or_groups: list[list[str]] = [[]]
+    for token in inner:
+        if token == "-o":
+            or_groups.append([])
+        else:
+            or_groups[-1].append(token)
+    then = _SS_EMPTY
+    for group in or_groups:
+        atoms: list[list[str]] = [[]]
+        for token in group:
+            if token == "-a":
+                atoms.append([])
+            else:
+                atoms[-1].append(token)
+        group_then = _SS_UNIVERSE
+        for atom in atoms:
+            atom_then = _status_atom_then(atom, variable)
+            if atom_then is None:
+                return None
+            group_then = _ss_intersect(group_then, atom_then)
+        then = _ss_union(then, group_then)
+    return _ss_complement(then) if negated else then
+
+
+def _condition_model(tokens: list[str], variable: str):
+    """Classify one condition command against the captured
+    variable: ("status", then-set) for a pure modelled test of
+    it, ("unknown", None) when it touches the variable in any
+    other way, ("other", None) when it does not touch the
+    variable at all."""
+    then = _status_test_then(tokens, variable)
+    if then is not None:
+        return "status", then
+    if _test_mentions_variable(tokens, variable):
+        return "unknown", None
+    return "other", None
+
+
+def _fold_condition(parts: list, variable: str):
+    """Fold the parts of a (possibly ``&&``/``||``-chained)
+    condition: parts are (tokens, join-in-front) pairs. Any
+    unmodelled or mixed part makes the whole condition
+    "unknown" — the conservative verdict."""
+    kind, then = _condition_model(parts[0][0], variable)
+    for tokens, join in parts[1:]:
+        kind2, then2 = _condition_model(tokens, variable)
+        if kind == "unknown" or kind2 == "unknown":
+            kind, then = "unknown", None
+        elif kind == "status" and kind2 == "status":
+            then = (
+                _ss_intersect(then, then2)
+                if join == "&&"
+                else _ss_union(then, then2)
+            )
+        elif kind == "other" and kind2 == "other":
+            kind = "other"
+        else:
+            kind, then = "unknown", None
+    return kind, then
+
+
+def _is_fallback_exec(segment: _Segment) -> bool:
+    """True for the text form's exec: exec python3 -m beerus."""
+    return (
+        segment.kind == "command"
+        and len(segment.tokens) >= 4
+        and _basename(segment.tokens[0]) == "exec"
+        and _basename(segment.tokens[1]) == "python3"
+        and segment.tokens[2] == "-m"
+        and segment.tokens[3] == "beerus"
+    )
+
+
+def _launcher_walk(segs: list[_Segment], variable: str, capture_pos: int):
+    """Walk beerus-live's top-level segments tracking, for every
+    statement, the set of captured-status outcomes that can
+    reach it — the path condition.
+
+    Branch conditions narrow the set (a then-branch intersects
+    with the condition's then-set, an else-branch with its
+    complement, an ``elif`` with the complement of every earlier
+    condition plus its own), a guard whose statement terminates
+    removes its outcomes from what flows past it, and a
+    ``&&``-chained test contributes its then-set to the chained
+    statement. A condition that does not test the variable
+    narrows nothing but marks the region conditional (the
+    fallback and its notices may not live in one); a condition
+    that touches the variable in an unmodelled way, and loop /
+    case bodies, are opaque — nothing inside them is credited
+    at all. Dead segments never credit anything.
+
+    Returns {"exits": [(code, sset, eligible, narrowed)],
+    "fallbacks": [(pos, sset, eligible, narrowed)],
+    "notices": [(line index, pos, sset, eligible, narrowed)]},
+    where eligible is False for anything the segment data marks
+    dead/unproven-outside-a-chain, subshell-bound, inside a
+    function body, or behind an opaque or chain-poisoned path.
+    """
+    exits: list = []
+    fallbacks: list = []
+    notices: list = []
+
+    def new_frame(kind, current, narrowed=False, opaque=False):
+        return {
+            "kind": kind,
+            "current": current,
+            "entry": current,
+            "narrowed": narrowed,
+            "opaque": opaque,
+            "conds": [],
+            "known": True,
+            "branches": [],
+            "has_else": False,
+        }
+
+    stack: list[dict] = [new_frame("root", _SS_ABSENT)]
+    chain: dict | None = None
+
+    def flags():
+        return (
+            any(frame["narrowed"] for frame in stack),
+            any(frame["opaque"] for frame in stack),
+        )
+
+    def seg_eligible(segment: _Segment) -> bool:
+        return (
+            not segment.dead
+            and segment.subshell == 0
+            and segment.func is None
+            and (
+                not segment.unproven
+                or segment.sep_before in ("&&", "||")
+                or segment.sep_after in ("&&", "||")
+            )
+        )
+
+    def flush_chain() -> None:
+        nonlocal chain
+        if chain is None:
+            return
+        parts = [element["fail"] for element in chain["elements"][:-1]]
+        if chain["elements"] and not chain["elements"][-1]["terminating"]:
+            parts.append(chain["elements"][-1]["context"])
+        total = _SS_EMPTY
+        for part in parts:
+            total = _ss_union(total, part)
+        stack[-1]["current"] = total
+        chain = None
+
+    def covered(frame: dict) -> _StatusSet:
+        total = _SS_EMPTY
+        for cond in frame["conds"]:
+            total = _ss_union(total, cond)
+        return total
+
+    def process_simple(pos: int, segment: _Segment) -> None:
+        nonlocal chain
+        if chain is not None and segment.sep_before == chain["op"]:
+            context = chain["next"]
+            poisoned = chain["poisoned"]
+        else:
+            flush_chain()
+            context = stack[-1]["current"]
+            poisoned = False
+        narrowed, opaque = flags()
+        eligible = seg_eligible(segment) and not opaque and not poisoned
+        tokens = segment.tokens
+        terminating = False
+        if pos == capture_pos:
+            context = _SS_ALL_CODES
+            stack[-1]["current"] = _SS_ALL_CODES
+        if tokens and _basename(tokens[0]) == "exit":
+            code = tokens[1] if len(tokens) > 1 else None
+            exits.append((code, context, eligible, narrowed))
+            terminating = True
+        elif _is_fallback_exec(segment):
+            fallbacks.append((pos, context, eligible, narrowed))
+            terminating = True
+        elif tokens and _basename(tokens[0]) == "exec":
+            terminating = True
+        if tokens and _basename(tokens[0]) in ("echo", "printf"):
+            line = " ".join(tokens[1:])
+            if line in _NOTICE_LINES:
+                notices.append(
+                    (
+                        _NOTICE_LINES.index(line),
+                        pos,
+                        context,
+                        eligible,
+                        narrowed,
+                    )
+                )
+        # This element's contribution to what flows past the
+        # chain it sits in, and the context its chain successor
+        # inherits.
+        then = None
+        poison_next = False
+        if (
+            segment.kind == "command"
+            and tokens
+            and _basename(tokens[0]) in ("[", "[[", "test")
+        ):
+            kind, then = _condition_model(tokens, variable)
+            if kind != "status":
+                then = None
+                if kind == "unknown":
+                    poison_next = True
+        join = segment.sep_after or segment.sep_before
+        if then is not None and join == "||":
+            fail = _ss_intersect(context, then)
+            following = _ss_intersect(context, _ss_complement(then))
+        elif then is not None:
+            fail = _ss_intersect(context, _ss_complement(then))
+            following = _ss_intersect(context, then)
+        else:
+            fail = _SS_EMPTY if terminating else context
+            following = context
+        if pos == capture_pos:
+            following = _SS_ALL_CODES
+        element = {
+            "context": context,
+            "fail": fail,
+            "terminating": terminating,
+        }
+        if chain is not None and segment.sep_before == chain["op"]:
+            chain["elements"].append(element)
+            chain["next"] = following
+            chain["poisoned"] = poisoned or poison_next
+            if segment.sep_after != chain["op"]:
+                flush_chain()
+        elif segment.sep_after in ("&&", "||"):
+            chain = {
+                "op": segment.sep_after,
+                "elements": [element],
+                "next": following,
+                "poisoned": poison_next,
+            }
+        elif terminating:
+            stack[-1]["current"] = _SS_EMPTY
+
+    def gather_condition(pos: int, segment: _Segment):
+        """The (tokens, join) parts of an if/elif condition,
+        including any && / ||-chained segments that follow it;
+        returns (parts, last consumed position)."""
+        parts = [(segment.tokens, None)]
+        probe = pos + 1
+        while probe < len(segs) and segs[probe].sep_before in ("&&", "||"):
+            parts.append((segs[probe].tokens, segs[probe].sep_before))
+            probe += 1
+        return parts, probe - 1
+
+    pos = 0
+    while pos < len(segs):
+        segment = segs[pos]
+        prefix = []
+        for token in segment.raw_tokens:
+            if token in (
+                "if",
+                "elif",
+                "else",
+                "then",
+                "fi",
+                "do",
+                "done",
+                "while",
+                "until",
+                "for",
+                "case",
+                "esac",
+                "{",
+                "}",
+            ):
+                prefix.append(token)
+            else:
+                break
+        consumed = False
+        for keyword in prefix:
+            if keyword == "if":
+                flush_chain()
+                parts, pos = gather_condition(pos, segment)
+                kind, then = _fold_condition(parts, variable)
+                entry = stack[-1]["current"]
+                frame = new_frame(
+                    "if",
+                    entry,
+                    narrowed=(kind == "other"),
+                    opaque=(kind == "unknown"),
+                )
+                frame["conds"] = [then]
+                frame["known"] = kind == "status"
+                if kind == "status":
+                    frame["current"] = _ss_intersect(entry, then)
+                stack.append(frame)
+                consumed = True
+            elif keyword == "elif":
+                flush_chain()
+                if stack[-1]["kind"] == "if":
+                    frame = stack[-1]
+                    frame["branches"].append(frame["current"])
+                    parts, pos = gather_condition(pos, segment)
+                    kind, then = _fold_condition(parts, variable)
+                    remaining = frame["entry"]
+                    if frame["known"]:
+                        remaining = _ss_intersect(
+                            frame["entry"],
+                            _ss_complement(covered(frame)),
+                        )
+                    frame["conds"].append(then)
+                    if kind == "status":
+                        frame["current"] = _ss_intersect(remaining, then)
+                    else:
+                        frame["known"] = False
+                        frame["current"] = remaining
+                        if kind == "other":
+                            frame["narrowed"] = True
+                        else:
+                            frame["opaque"] = True
+                consumed = True
+            elif keyword == "else":
+                flush_chain()
+                if stack[-1]["kind"] == "if":
+                    frame = stack[-1]
+                    frame["branches"].append(frame["current"])
+                    frame["has_else"] = True
+                    if frame["known"]:
+                        frame["current"] = _ss_intersect(
+                            frame["entry"],
+                            _ss_complement(covered(frame)),
+                        )
+                    else:
+                        frame["current"] = frame["entry"]
+            elif keyword == "fi":
+                flush_chain()
+                if stack[-1]["kind"] == "if":
+                    frame = stack.pop()
+                    frame["branches"].append(frame["current"])
+                    total = _SS_EMPTY
+                    for branch in frame["branches"]:
+                        total = _ss_union(total, branch)
+                    if not frame["has_else"]:
+                        if frame["known"]:
+                            total = _ss_union(
+                                total,
+                                _ss_intersect(
+                                    frame["entry"],
+                                    _ss_complement(covered(frame)),
+                                ),
+                            )
+                        else:
+                            total = _ss_union(total, frame["entry"])
+                    stack[-1]["current"] = total
+                consumed = True
+            elif keyword in ("while", "until", "for"):
+                flush_chain()
+                stack.append(
+                    new_frame(
+                        "loop",
+                        stack[-1]["current"],
+                        narrowed=True,
+                        opaque=True,
+                    )
+                )
+                consumed = True
+            elif keyword == "done":
+                flush_chain()
+                if stack[-1]["kind"] == "loop":
+                    frame = stack.pop()
+                    stack[-1]["current"] = frame["entry"]
+                consumed = True
+            elif keyword == "case":
+                flush_chain()
+                stack.append(
+                    new_frame(
+                        "case",
+                        stack[-1]["current"],
+                        narrowed=True,
+                        opaque=True,
+                    )
+                )
+                consumed = True
+            elif keyword == "esac":
+                flush_chain()
+                if stack[-1]["kind"] == "case":
+                    frame = stack.pop()
+                    stack[-1]["current"] = frame["entry"]
+                consumed = True
+            # "then", "do", "{", "}" change nothing themselves;
+            # a statement they carry is processed below.
+        if not consumed and not segment.dead:
+            if segment.tokens or segment.assignments:
+                process_simple(pos, segment)
+        pos += 1
+    flush_chain()
+    return {"exits": exits, "fallbacks": fallbacks, "notices": notices}
+
+
+def _graphical_first_problems(segments: list[_Segment]) -> list[str]:
+    """Problems with beerus-live's graphical-first design.
+
+    Judged on path conditions (see ``_launcher_walk``): the
+    status capture must be the very next statement after the
+    startx run and the only assignment to its variable in the
+    script; each honored exit is credited only when every
+    outcome that can reach it is that exit's code; the text
+    form's exec and the two notice lines are credited only on
+    the one path every other outcome takes — every code except
+    0 and 2, with the variable-unset outcome (no startx at all)
+    flowing there too — never inside a narrower branch.
+    """
+    problems: list[str] = []
+    segs = [segment for segment in segments if segment.depth == 0]
+    startx_pos = None
+    startx_segment = None
+    for pos, segment in enumerate(segs):
+        if segment.dead or segment.unproven:
+            continue
+        if (
+            segment.kind == "command"
+            and segment.tokens
+            and _basename(segment.tokens[0]) == "startx"
+            and segment.func is None
+            and segment.subshell == 0
+        ):
+            startx_pos = pos
+            startx_segment = segment
+            break
+    if startx_pos is None or startx_segment is None:
+        problems.append(
+            "beerus-live never tries the graphical session: no "
+            "startx run of /usr/local/bin/beerus-ui stands before "
+            "the text fallback."
+        )
+        return problems
+    client = next(
+        (
+            token
+            for token in startx_segment.tokens[1:]
+            if not token.startswith("-")
+        ),
+        None,
+    )
+    if client != _GUI_CLIENT:
+        problems.append(
+            "beerus-live's startx run does not start "
+            "/usr/local/bin/beerus-ui as its client."
+        )
+    if startx_segment.sep_after == "||":
+        problems.append(
+            "beerus-live swallows the graphical session's exit "
+            "status (|| after startx) — a designed refusal from "
+            "the graphical session would be lost, and the text "
+            "fallback would start as if nothing had been decided."
+        )
+    if (
+        startx_segment.sep_after in ("&", "|")
+        or startx_segment.stmt_bg
+        or startx_segment.in_pipeline
+        or _effective_tail(segs, startx_pos) in ("&", "|")
+    ):
+        problems.append(
+            "beerus-live runs startx in the background or in a "
+            "pipeline (& or | after startx) — the status captured "
+            "after it would be the launch result, not the "
+            "graphical session's own exit code, so a graphical "
+            "failure could be reported as success and no fallback "
+            "would run."
+        )
+    # Capture integrity: the capture is the statement
+    # immediately after the startx run, its value is exactly
+    # $?, and its variable is assigned nowhere else — a second
+    # assignment (a constant, say) would replace the session's
+    # real outcome with a made-up one before any test reads it.
+    variable = None
+    capture_pos = None
+    for pos in range(startx_pos + 1, len(segs)):
+        segment = segs[pos]
+        if segment.dead:
+            continue
+        for assignment in segment.assignments:
+            match = _STATUS_CAPTURE.match(assignment)
+            if match:
+                variable = match.group(1)
+                capture_pos = pos
+                break
+        if variable is not None:
+            break
+    raw_fallbacks = [
+        pos
+        for pos, segment in enumerate(segs)
+        if not segment.dead
+        and _is_fallback_exec(segment)
+        and pos > startx_pos
+    ]
+    if variable is None or capture_pos is None:
+        problems.append(
+            "beerus-live does not capture the graphical session's "
+            "exit status (a variable set from $? after startx), "
+            "so no outcome of the graphical session can be "
+            "honored — every result would fall through to the "
+            "text fallback."
+        )
+        if not raw_fallbacks:
+            problems.append(
+                "beerus-live has no text fallback after the graphical "
+                "attempt (exec python3 -m beerus) — a machine whose "
+                "graphical session cannot start would get nothing."
+            )
+        return problems
+    capture_segment = segs[capture_pos]
+    if (
+        capture_pos != startx_pos + 1
+        or capture_segment.kind != "assignment"
+        or capture_segment.assignments != [f"{variable}=$?"]
+    ):
+        problems.append(
+            "beerus-live does not capture the graphical session's "
+            "exit status immediately after startx: the assignment "
+            "from $? must be the very next statement after the "
+            "startx run, with nothing in between and nothing "
+            "alongside it — anything else leaves open whether the "
+            "value it holds is the session's own outcome."
+        )
+    assignments_to_variable = 0
+    for segment in segs:
+        for assignment in segment.assignments:
+            if assignment.split("=", 1)[0] == variable:
+                assignments_to_variable += 1
+        if segment.tokens and _basename(segment.tokens[0]) in (
+            "export",
+            "readonly",
+            "local",
+            "declare",
+            "typeset",
+        ):
+            for token in segment.tokens[1:]:
+                if "=" in token and token.split("=", 1)[0] == variable:
+                    assignments_to_variable += 1
+    if assignments_to_variable != 1:
+        problems.append(
+            "beerus-live assigns its captured status variable "
+            "more than once — it must be assigned exactly once, "
+            "from $? immediately after startx; a second "
+            "assignment would replace the graphical session's "
+            "real outcome with a made-up one before the tests "
+            "read it."
+        )
+    walk = _launcher_walk(segs, variable, capture_pos)
+    for code in ("0", "2"):
+        want = _ss_singleton(int(code))
+        if not any(
+            recorded == code and eligible and sset == want
+            for recorded, sset, eligible, _narrowed in walk["exits"]
+        ):
+            problems.append(
+                f"beerus-live does not exit {code} when the "
+                f"graphical session exits {code}: that outcome "
+                "must be bound to the captured status, not "
+                "left to fall through."
+            )
+    if not raw_fallbacks:
+        problems.append(
+            "beerus-live has no text fallback after the graphical "
+            "attempt (exec python3 -m beerus) — a machine whose "
+            "graphical session cannot start would get nothing."
+        )
+        return problems
+    credited = [
+        pos
+        for pos, sset, eligible, narrowed in walk["fallbacks"]
+        if eligible and not narrowed and _is_fallback_set(sset)
+    ]
+    anchor = credited[0] if credited else raw_fallbacks[-1]
+    if not credited:
+        problems.append(
+            "beerus-live does not reach the exec that starts "
+            "its text form on exactly the graphical outcomes "
+            "that need it: the exec must stand after both "
+            "honored exits, on the path every other outcome "
+            "takes — an exec inside a narrower branch, or one "
+            "a clean finish or a designed refusal can reach, "
+            "proves nothing."
+        )
+    if any(
+        segment.kind in ("command", "noop", "assignment")
+        for segment in segs[anchor + 1 :]
+    ):
+        problems.append(
+            "beerus-live runs further statements after its "
+            "text fallback exec — the exec must remain the "
+            "final command, so its exit code is the service's "
+            "exit code."
+        )
+    notices_ok = False
+    seen_first = False
+    for line_index, pos, sset, eligible, narrowed in walk["notices"]:
+        if pos >= anchor:
+            continue
+        if not (eligible and not narrowed and _is_fallback_set(sset)):
+            continue
+        if line_index == 0:
+            seen_first = True
+        elif line_index == 1 and seen_first:
+            notices_ok = True
+    if not notices_ok:
+        problems.append(
+            "beerus-live does not print its two designed "
+            "notice lines, in order, before the text fallback "
+            "exec — the operator would not be told plainly "
+            "that the graphical session could not start and "
+            "what runs instead of it."
+        )
+    return problems
+
+
 def _eval_invoked_name(segment: _Segment) -> str | None:
     """For a plain-call eval segment, the name it invokes.
 
@@ -2988,8 +3901,10 @@ def check(image_dir: Path) -> list[str]:
 
     launcher = image_dir / "config/includes.chroot/usr/local/bin/beerus-live"
     if launcher.is_file():
-        segments = _command_segments(
-            launcher.read_text(encoding="utf-8")
+        launcher_text = launcher.read_text(encoding="utf-8")
+        segments = _command_segments(launcher_text)
+        problems.extend(
+            _launcher_grammar_problems(launcher_text, "beerus-live")
         )
         # The launcher is judged the way the shell runs it: its
         # own statements, in order, in its own scope. Only plain
@@ -3225,6 +4140,147 @@ def check(image_dir: Path) -> list[str]:
             )
         if not _is_executable(launcher):
             problems.append("The console launcher is not executable.")
+        # The graphical-first design (Phase 4), judged from the
+        # same analysed segments: startx with the boot UI as its
+        # client, the status captured and both terminal codes
+        # honored, and the text fallback's exec after the attempt
+        # as the final command.
+        problems.extend(_graphical_first_problems(segments))
+
+    ui_client = (
+        image_dir / "config/includes.chroot/usr/local/bin/beerus-ui"
+    )
+    if ui_client.is_file():
+        ui_text = ui_client.read_text(encoding="utf-8")
+        ui_segments = _command_segments(ui_text)
+        problems.extend(
+            _launcher_grammar_problems(ui_text, "beerus-ui")
+        )
+
+        def _is_bootui_exec(segment: _Segment) -> bool:
+            return (
+                segment.kind == "command"
+                and len(segment.tokens) >= 4
+                and _basename(segment.tokens[0]) == "exec"
+                and _basename(segment.tokens[1]) == "python3"
+                and segment.tokens[2] == "-m"
+                and segment.tokens[3] == "beerus.bootui"
+            )
+
+        if not any(
+            _is_bootui_exec(segment)
+            and not segment.dead
+            and not segment.unproven
+            for segment in ui_segments
+        ):
+            problems.append(
+                "beerus-ui does not start the boot UI "
+                "(python3 -m beerus.bootui)."
+            )
+        # The client must put the staged package on its Python
+        # path and export it, exactly as beerus-live does for
+        # the text session: without it the graphical session
+        # cannot import the staged package and can never start.
+        # Judged on the state in force at the boot UI exec —
+        # the last plain assignment before it, and whether the
+        # export attribute was set by then.
+        ui_value: str | None = None
+        ui_exported = False
+        for segment in ui_segments:
+            if segment.depth != 0 or segment.subshell != 0:
+                continue
+            if _is_bootui_exec(segment) and not segment.dead:
+                break
+            if segment.kind == "assignment":
+                for assignment in segment.assignments:
+                    if assignment.startswith("PYTHONPATH="):
+                        ui_value = assignment.split("=", 1)[1]
+                continue
+            if (
+                segment.kind == "command"
+                and segment.tokens
+                and _basename(segment.tokens[0]) == "export"
+            ):
+                for token in segment.tokens[1:]:
+                    if token == "PYTHONPATH":
+                        ui_exported = True
+                    elif token.startswith("PYTHONPATH="):
+                        ui_value = token.split("=", 1)[1]
+                        ui_exported = True
+                continue
+            if (
+                segment.kind == "command"
+                and segment.tokens
+                and _basename(segment.tokens[0]) == "unset"
+                and "PYTHONPATH" in segment.tokens[1:]
+            ):
+                ui_value = None
+        if ui_value is None or "/opt/beerus" not in _path_components(
+            ui_value
+        ):
+            problems.append(
+                "beerus-ui does not put the staged package "
+                "(/opt/beerus) on its Python path — the "
+                "graphical session would not find the staged "
+                "package and could never start."
+            )
+        elif not ui_exported:
+            problems.append(
+                "beerus-ui sets its Python path but never "
+                "exports it — the graphical session would not "
+                "see the staged package."
+            )
+        if ui_value is not None:
+            # The path value must be written out in full: the
+            # only expansion allowed in it is the append of the
+            # path's own previous value. A substitution would
+            # run a command while the path is set, and another
+            # variable would make the proved path a different
+            # path at run time.
+            path_rest = re.sub(
+                r"\$\{PYTHONPATH[^}]*\}", "", ui_value
+            )
+            path_rest = re.sub(
+                r"\$PYTHONPATH(?![A-Za-z0-9_])", "", path_rest
+            )
+            if "$" in path_rest or "`" in path_rest:
+                problems.append(
+                    "beerus-ui sets its Python path from a value "
+                    "that is not written out in full — a "
+                    "substitution or another variable in that "
+                    "value would run or expand while the path "
+                    "is set, and the path the check proves must "
+                    "be the path that runs."
+                )
+        # The client does exactly one thing: it starts the
+        # boot UI. Its only effective command may be that exec
+        # (assignments and the export of the path are setup,
+        # not commands) — an extra command before it (the
+        # text session's module run first, in a subshell or
+        # not), one after it, or a different module in its
+        # place all mean the client runs something besides —
+        # or instead of — the graphical session it exists to
+        # start. Counted as written, dead or not: a command
+        # parked after an exec is still a second command in
+        # the file, and this client's shape is the design.
+        effective = [
+            segment
+            for segment in ui_segments
+            if segment.kind in ("command", "noop")
+            and not (
+                segment.tokens
+                and _basename(segment.tokens[0]) == "export"
+            )
+        ]
+        if len(effective) != 1 or not _is_bootui_exec(effective[0]):
+            problems.append(
+                "beerus-ui must contain exactly one effective "
+                "command — the boot UI exec — and nothing "
+                "before or after it; an extra command there "
+                "runs alongside the graphical session."
+            )
+        if not _is_executable(ui_client):
+            problems.append("beerus-ui is not executable.")
 
     hook = image_dir / "config/hooks/live/0900-beerus.hook.chroot"
     if hook.is_file():
@@ -3312,9 +4368,22 @@ def check(image_dir: Path) -> list[str]:
                     f"The build hook does not mention {needle} — it "
                     f"must {why}."
                 )
+        bootui_index = _first_proven_index(
+            segments, "/opt/beerus/beerus/bootui/app.py"
+        )
+        if bootui_index is None or _shadowed_before(
+            segments,
+            {"test", "[", "[[", "set", "exit"},
+            bootui_index,
+        ):
+            problems.append(
+                "The build does not prove the staged boot UI "
+                "(beerus/bootui/app.py) is in the image — the "
+                "graphical session would have nothing to run."
+            )
         hook_credit_indexes = [
             i
-            for i in (live_index, marker_index, mask_index)
+            for i in (live_index, marker_index, mask_index, bootui_index)
             if i is not None
         ]
         if hook_credit_indexes and any(
