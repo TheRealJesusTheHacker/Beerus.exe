@@ -89,7 +89,58 @@ Sacrificial-drive validation on real hardware remains Phase 5.
   as the client's business record — never committed to this repo
   (they carry client drive serials).
 
-**Status: PLANNED.**
+**Status: COMPLETE — shipped in v0.3.0 (2026-10-20).**
+
+As built: `beerus/verify.py` verifies per method. Overwrite
+(Clear) plans are read back across the full surface and checked
+byte-for-byte against the plan's final pass; a plan ending in a
+random pass cannot be byte-verified and is honestly reported
+NOT VERIFIED. NVMe (Purge) plans are verified by the drive's
+own sanitize status — read through the same command-builder
+seam the executor uses — plus a sampled read-back (64 regions,
+overlaps never double-counted); ATA Secure Erase has no status
+read in this architecture, so its verification rests on the
+sampled read-back and says so. Sampled results always state the
+exact bytes and regions checked against the drive's total. A
+check that cannot be performed — unreadable surface, failed
+read, missing firmware status — is NOT VERIFIED, never a pass;
+positive evidence of surviving data is a FAIL with the remnant
+count and first offsets. Verification results are HMAC-signed
+at mint with a per-run key and bound to the drive's identity,
+the method that actually ran (including the NVMe Sanitize →
+Format fallback), and every reported figure, so an edited or
+hand-built result does not verify. When a verifier is wired
+into the engine, verification runs after the wipe completes
+and rides on the wipe result; a verification error attaches a
+NOT VERIFIED result rather than failing the run.
+`beerus/certificate.py` builds the job record from the drive,
+the wipe result, and the operator, and refuses — at record
+build, at document issue, and again in the renderers — any
+record whose verification is unsigned, edited, or bound to a
+different drive, size, or method. Only a genuine PASS earns
+the printable HTML certificate (model, serial, capacity,
+method + NIST 800-88 category, start/finish times, the
+verification verdict with its coverage, operator, record ID);
+everything else receives the failure report with the
+verification's own findings and the next steps. Documents are
+written locally with record-ID-bound filenames and are never
+silently overwritten. The independent audit of this phase
+(findings F1–F14, including the record-binding hole the first
+draft left between the signed verification and the rest of the
+record) was fixed and re-audited clean; the suite is 257 tests,
+all against synthetic targets and fake runners.
+
+Honest residuals, by design: certificates must be issued in
+the same run as the wipe — the signing key lives only for the
+run, so a past run's result cannot be re-certified later (a
+certificate archive format is in the backlog below). Purge
+read-back is a sample by nature: firmware erases happen where
+no read-back can see, which is why the drive's own status is
+checked where one exists and the sample's coverage is always
+disclosed. The read-back surface reader for real drives opens
+read-only and trusts the drive path exactly as the executor
+does; hardware truth for all of this is Phase 5's
+sacrificial-drive validation.
 
 ## Phase 3 — Bootable image definition
 
