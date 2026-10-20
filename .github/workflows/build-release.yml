@@ -61,7 +61,24 @@ jobs:
             Write-Host "Release tag '$tag' does not match beerus.__version__ '$code' (expected tag 'v$code')."
             exit 1
           }
-          Write-Host "Release tag $tag matches beerus.__version__ $code."
+          # The same version lives in three places; all three
+          # must agree with the tag, so a drift in any one of
+          # them fails the release instead of shipping silently.
+          $pyproject = Get-Content pyproject.toml -Raw
+          if ($pyproject -notmatch 'version\s*=\s*"([^"]+)"') {
+            Write-Host "Could not read version from pyproject.toml."
+            exit 1
+          }
+          if ($Matches[1] -ne $code) {
+            Write-Host "pyproject.toml version '$($Matches[1])' does not match beerus.__version__ '$code'."
+            exit 1
+          }
+          $spec = Get-Content packaging/Beerus.spec -Raw
+          if ($spec -notmatch [regex]::Escape("`"FileVersion`", `"$code.0`"")) {
+            Write-Host "packaging/Beerus.spec FileVersion does not match '$code.0'."
+            exit 1
+          }
+          Write-Host "Release tag $tag matches beerus.__version__ $code (and pyproject.toml, and the spec's version resource)."
 
       - name: Install dependencies
         run: pip install -r packaging/requirements-ci.txt
