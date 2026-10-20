@@ -2,6 +2,48 @@
 
 All notable changes to BEERUS.EXE are recorded here.
 
+## [0.4.0] — 2026-10-20
+
+Beerus Portable — the portable app edition, and file-level wiping.
+
+- **Beerus Portable (new form):** a no-install Windows app
+  (`beerus_portable`) running the same engine, gates,
+  verification, and certificates on an already-booted machine.
+  Windows inventory is read through read-only PowerShell
+  queries into the engine's own drive records. Live-system
+  refusal rules: the drive Windows is running from and the
+  drive the app itself is running from are marked as boot
+  devices, so the engine and gates refuse them at every layer,
+  and unidentifiable drives are refused by the engine's rule.
+  The shipped whole-drive executor stays disarmed by both of
+  its factors — arming remains a deployment act, and the app
+  contains no arming path.
+- **Files & folders mode (`beerus.filewipe`):** selected files
+  are overwritten in full (the engine's pass plan), flushed,
+  and read back and verified BEFORE their entries are removed;
+  entries go last, by rename-to-random + truncate + delete.
+  Scope is fixed and counted before consent; links are never
+  followed; protected OS locations are refused plainly;
+  per-item outcomes are reported with reasons (locked files
+  are reported, never forced).
+- **Free-space mode:** a volume's free space is filled through
+  the overwrite pass plan with a disclosed safety margin, the
+  filler read back (sampled) and removed; existing files are
+  untouched.
+- **Consent + reporting for file modes:** an HMAC-bound gate
+  authority (scope-hash binding, exact typed phrase,
+  single-use expiring tokens) and signed wipe reports with
+  the certificate module's anti-forgery posture — plainly
+  reports, never certificates of destruction.
+- **Honesty disclosures:** the SSD wear-leveling/TRIM limit
+  and the other-copies limit are stated at mode selection, in
+  the scope statement, and in the report.
+- **Release:** tag-gated Windows workflow builds
+  `BeerusPortable.zip` (one-folder layout, no installer) with
+  the full suite offscreen, a staged-app launch smoke test,
+  and SHA-256 checksums. 309 tests, all against synthetic
+  targets.
+
 ## [0.3.0] — 2026-10-20
 
 Phase 2 — post-wipe verification + certificate of destruction.
