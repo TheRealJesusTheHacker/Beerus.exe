@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
+*.manifest
+
+# Beerus working data (never commit certificates, reports, or image build
+# outputs — certificates carry client drive serials and are business
+# records, not repo content)
+*.log
+certificates/
+reports/
+images/
+*.iso
+*.img
+
+# OS / editor
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
