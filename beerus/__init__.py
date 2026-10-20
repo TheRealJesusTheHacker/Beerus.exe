@@ -8,6 +8,12 @@ identify, and refuses the drive Beerus booted from — always. A
 wipe that cannot be verified never earns a clean certificate:
 failed and unverifiable wipes get a plainly-marked failure report
 instead.
+
+Phase 2.5 adds ``beerus.filewipe``: file, folder, and free-space
+wiping for the portable app edition (``beerus_portable``) — the
+same rule at file level: the selected data is overwritten and
+read back before its entry is removed, never merely unlinked,
+under the same consent discipline, with signed wipe reports.
 """
 
 from .certificate import (
@@ -62,7 +68,7 @@ from .verify import (
     verify_result_authentic,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "BeerusError",
