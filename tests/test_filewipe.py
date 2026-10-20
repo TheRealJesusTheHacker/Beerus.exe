@@ -124,8 +124,12 @@ def test_symlink_escape_never_expands_scope(tmp_path):
     assert outside.read_bytes() == DATA
     outcomes = {o.path: o for o in result.outcomes}
     assert outcomes[str(folder / "real.txt")].status == WIPED_VERIFIED
-    assert outcomes[str(folder / "escape-link")].status == SKIPPED
-    assert outcomes[str(folder / "dir-link")].status == SKIPPED
+    from beerus.filewipe import LINK_REMOVED
+
+    assert outcomes[str(folder / "escape-link")].status == LINK_REMOVED
+    assert outcomes[str(folder / "dir-link")].status == LINK_REMOVED
+    assert result.links_removed == 2
+    assert result.skipped == 0
     assert not os.path.lexists(folder / "escape-link")
 
 
@@ -339,6 +343,246 @@ def test_free_space_needs_a_token(tmp_path):
     )
     with pytest.raises(TokenError):
         engine.execute(scope, None)
+
+
+# ------------------------------------------------------- audit regressions
+# One test per finding from the independent audit of v0.4.0
+# (H1, H2, M1-M6, L1, L2). These stay in the suite permanently.
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink semantics differ")
+def test_protected_check_resolves_symlinked_parent(tmp_path):
+    # H1: a protected file reached through a symlinked parent
+    # folder must be refused by its RESOLVED location.
+    protected = tmp_path / "protected-real"
+    secret = write(protected / "os.dll")
+    alias = tmp_path / "innocent"
+    os.symlink(protected, alias)
+    with pytest.raises(FileScopeError) as caught:
+        build_file_scope(
+            [alias / "os.dll"], protected_roots=(str(protected),)
+        )
+    assert "protected Windows folder" in str(caught.value)
+    assert secret.read_bytes() == DATA
+
+
+@pytest.mark.skipif(os.name == "nt", reason="hardlink semantics differ")
+def test_hardlinked_file_is_refused_at_scope_build(tmp_path):
+    # H2: the same data under two names — wiping one name would
+    # destroy the other, which is not in the announced scope.
+    first = write(tmp_path / "first.txt")
+    os.link(first, tmp_path / "second.txt")
+    with pytest.raises(FileScopeError) as caught:
+        build_file_scope([first])
+    assert "more than one" in str(caught.value)
+    assert first.read_bytes() == DATA
+
+
+@pytest.mark.skipif(os.name == "nt", reason="hardlink semantics differ")
+def test_file_gaining_a_link_after_confirmation_is_left_alone(tmp_path):
+    target = write(tmp_path / "solo.txt")
+    scope = build_file_scope([target])
+    os.link(target, tmp_path / "twin.txt")
+    result = run_wipe(scope)
+    assert result.outcomes[0].status == FAILED
+    assert "another name" in result.outcomes[0].detail
+    assert target.read_bytes() == DATA
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink semantics differ")
+def test_aliased_paths_count_once(tmp_path):
+    # M3: one physical file reached by two spellings is one file.
+    real = write(tmp_path / "real" / "f.txt")
+    os.symlink(tmp_path / "real", tmp_path / "alias")
+    scope = build_file_scope([real, tmp_path / "alias" / "f.txt"])
+    assert scope.total_files == 1
+    assert scope.expected_phrase == "ERASE 1 FILE"
+
+
+def test_swap_detected_by_open_seam_fstat(tmp_path):
+    # M1: the file is replaced between the engine's stat and its
+    # open; the descriptor re-verification must catch it and the
+    # replacement must survive untouched.
+    target = write(tmp_path / "victim.txt")
+    replacement = b"REPLACEMENT" * 100
+
+    def seam(path, flags, original_open):
+        os.unlink(path)
+        with open(path, "wb") as f:
+            f.write(replacement)
+        return original_open(path, flags)
+
+    scope = build_file_scope([target])
+    authority, token = confirm(scope)
+    result = FileWipeEngine(authority, open_seam=seam).execute(
+        scope, token
+    )
+    assert result.outcomes[0].status == FAILED
+    assert target.read_bytes() == replacement
+
+
+def test_same_size_in_place_change_is_detected(tmp_path):
+    # M2: same inode, same size, new content — the modification
+    # stamp in the scope identity catches it.
+    target = write(tmp_path / "changing.txt")
+    scope = build_file_scope([target])
+    target.write_bytes(b"\x41" * len(DATA))
+    result = run_wipe(scope)
+    assert result.outcomes[0].status == FAILED
+    assert target.read_bytes() == b"\x41" * len(DATA)
+
+
+def test_file_gate_session_expires():
+    # M4: the session itself has a deadline, not just the token.
+    import time as time_module
+
+    authority = FileGateAuthority(token_ttl_seconds=0.2)
+    session = authority.begin_session(_tiny_scope())
+    time_module.sleep(0.3)
+    with pytest.raises(TokenError):
+        session.acknowledge_scope()
+
+
+def _tiny_scope():
+    import tempfile
+    from pathlib import Path
+
+    d = Path(tempfile.mkdtemp())
+    (d / "one.txt").write_bytes(b"x" * 10)
+    return build_file_scope([d / "one.txt"])
+
+
+def test_session_scope_text_carries_the_ssd_flag():
+    # L3: the session's own scope statement must not silently
+    # drop the SSD disclosure.
+    authority = FileGateAuthority()
+    session = authority.begin_session(_tiny_scope(), ssd=True)
+    text = session.acknowledge_scope()
+    assert SSD_FILE_DISCLOSURE in text
+
+
+def test_cross_type_tokens_refuse_cleanly(tmp_path):
+    # L2: wrong-kind scopes and tokens are TokenErrors, never
+    # AttributeErrors — and nothing is wiped either way.
+    target = write(tmp_path / "a.txt")
+    file_scope = build_file_scope([target])
+    free_scope = build_free_space_scope(
+        tmp_path, free_bytes_probe=lambda p: 24 * MIB, reserve_bytes=MIB
+    )
+    file_authority, file_token = confirm(file_scope)
+    free_authority, free_token = confirm(free_scope)
+    with pytest.raises(TokenError):
+        FileWipeEngine(free_authority).execute(free_scope, free_token)
+    with pytest.raises(TokenError):
+        FreeSpaceEngine(file_authority).execute(file_scope, file_token)
+    with pytest.raises(TokenError):
+        FileWipeEngine(file_authority).execute(file_scope, object())
+    assert target.read_bytes() == DATA
+
+
+def test_repartitioned_result_fails_verification(tmp_path):
+    # L1: a filename crafted with the old encoding's delimiters
+    # must not let one genuine outcome be repartitioned into two
+    # "authentic" ones.
+    crafted = tmp_path / "x|wiped_verified|SHINY|999\nEVIL"
+    crafted.write_bytes(DATA)
+
+    def seam(path, flags, original_open):
+        raise PermissionError("simulated Windows lock")
+
+    scope = build_file_scope([crafted])
+    authority, token = confirm(scope)
+    result = FileWipeEngine(authority, open_seam=seam).execute(
+        scope, token
+    )
+    assert result.outcomes[0].status == FAILED
+    assert verify_file_result_authentic(result)
+    fake = dataclasses.replace(
+        result,
+        outcomes=(
+            dataclasses.replace(
+                result.outcomes[0],
+                path="x",
+                status=WIPED_VERIFIED,
+                detail="SHINY",
+                bytes_written=999,
+            ),
+            dataclasses.replace(
+                result.outcomes[0], path="EVIL"
+            ),
+        ),
+    )
+    assert not verify_file_result_authentic(fake)
+    with pytest.raises(CertificateError):
+        build_file_report(fake, "Skyler Test", ssd=False)
+
+
+def test_free_space_shortfall_is_not_reported_complete(tmp_path):
+    # M5: a fill that reaches only part of the confirmed target
+    # is NOT a complete wipe.
+    write(tmp_path / "keep.txt", b"live" * 10)
+    scope = build_free_space_scope(
+        tmp_path, free_bytes_probe=lambda p: 24 * MIB, reserve_bytes=MIB
+    )
+    authority, token = confirm(scope)
+    engine = FreeSpaceEngine(
+        authority, free_bytes_probe=lambda p: 24 * MIB, chunk_bytes=MIB
+    )
+    real_fill = engine._fill_pass
+
+    def partial_fill(scope_, dir_, fillers, spec, emit, *, create):
+        if create:
+            return 512  # the volume "shrank": almost nothing filled
+        return real_fill(scope_, dir_, fillers, spec, emit, create=False)
+
+    engine._fill_pass = partial_fill
+    result = engine.execute(scope, token)
+    assert result.ok is False
+    assert "could be filled" in result.detail
+
+
+def test_free_space_refuses_a_foreign_filler_folder(tmp_path):
+    # M6: a pre-existing filler folder holding a user's file is
+    # refused — its contents are never adopted or deleted.
+    from beerus.errors import WipeFailedError
+
+    filler_dir = tmp_path / "Beerus free-space wipe"
+    filler_dir.mkdir()
+    user_file = write(filler_dir / "filler-0001.bin", b"USER DATA")
+    scope = build_free_space_scope(
+        tmp_path, free_bytes_probe=lambda p: 24 * MIB, reserve_bytes=MIB
+    )
+    authority, token = confirm(scope)
+    engine = FreeSpaceEngine(
+        authority, free_bytes_probe=lambda p: 24 * MIB, chunk_bytes=MIB
+    )
+    with pytest.raises(WipeFailedError):
+        engine.execute(scope, token)
+    assert user_file.read_bytes() == b"USER DATA"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink semantics differ")
+def test_free_space_refuses_a_symlinked_filler_folder(tmp_path):
+    # M6: a filler folder that is a link would relocate every
+    # write to another volume. Refused before anything is written.
+    from beerus.errors import WipeFailedError
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    volume = tmp_path / "volume"
+    volume.mkdir()
+    os.symlink(elsewhere, volume / "Beerus free-space wipe",
+               target_is_directory=True)
+    scope = build_free_space_scope(
+        volume, free_bytes_probe=lambda p: 24 * MIB, reserve_bytes=MIB
+    )
+    authority, token = confirm(scope)
+    engine = FreeSpaceEngine(
+        authority, free_bytes_probe=lambda p: 24 * MIB, chunk_bytes=MIB
+    )
+    with pytest.raises(WipeFailedError):
+        engine.execute(scope, token)
+    assert list(elsewhere.iterdir()) == []
 
 
 # ---------------------------------------------------------------- reports
