@@ -2,7 +2,7 @@
 
 **Sentinel Safeguard LLC — secure drive destruction, on a key.**
 
-[![Version](https://img.shields.io/badge/version-v0.2.0-2ee06f?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
+[![Version](https://img.shields.io/badge/version-v0.3.0-2ee06f?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
 [![Platform](https://img.shields.io/badge/platform-Bootable%20USB-0078D6?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe)
 [![Python](https://img.shields.io/badge/Python-3-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-b03a2e?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/LICENSE)
@@ -26,9 +26,11 @@ mean gone.
 
 **Portable form:** Beerus's portable edition is the bootable USB image itself — the Destruct Key Pro USB is its portable form, with no separate portable download or installer.
 
-And every wipe produces a **certificate of destruction**: the
-paper trail that turns end-of-life hardware into a documented,
-billable Sentinel service.
+And every wipe produces a document: a **certificate of
+destruction** when verification passes — the paper trail that
+turns end-of-life hardware into a documented, billable Sentinel
+service — or a plainly-marked failure report when it doesn't.
+A wipe that can't be verified never earns the certificate.
 
 ## How it works
 
@@ -45,9 +47,11 @@ billable Sentinel service.
 5. **Destroy** — the right NIST 800-88 method for the drive runs,
    and Beerus reports progress honestly while it works.
 6. **Verify** — a post-wipe verification pass checks the result
-   and gives a plain pass or fail.
+   and gives a plain pass, fail, or not verified.
 7. **Certify** — a printable certificate of destruction is
-   generated for the job.
+   generated when verification passes. When it doesn't, Beerus
+   issues a failure report instead — what was attempted, what
+   verification found, and what to do next.
 
 ## Destruction methods
 
@@ -61,14 +65,16 @@ not by habit:
   to itself.
 - **Spinning hard drives (HDD)** — multi-pass overwrite across the
   full drive.
-- **Verification** — after the wipe, a verification pass samples
-  the drive and reports an honest pass or fail. A fail is reported
-  as a fail — on screen and on the certificate.
+- **Verification** — after the wipe, a verification pass reads
+  the drive back: the full surface for overwrite wipes, a
+  disclosed sample plus the drive's own status for firmware
+  wipes. The verdict — pass, fail, or not verified — is reported
+  exactly as found, on screen and on the job document.
 
 ## Certificate of destruction — the Pro feature
 
-Every completed wipe generates a printable certificate of
-destruction recording:
+Every wipe that passes verification generates a printable
+certificate of destruction recording:
 
 - Drive **model and serial number**
 - **Method** used (per NIST 800-88)
@@ -79,7 +85,14 @@ destruction recording:
 For Sentinel's client decommissioning work, the certificate *is*
 the deliverable: proof, per drive, that the data is gone.
 Certificates are business records — they are generated on the job
-and never live in this repository.
+and never live in this repository. A wipe that fails verification
+— or can't be verified — gets a failure report instead of a
+certificate, stating what was attempted, what verification
+found, and what to do next. There is no way to print a clean
+certificate for a drive that didn't earn one: the verification
+result is signed when it is minted and bound to the drive and
+the method that actually ran, and the certificate is issued in
+the same run as the wipe.
 
 ## The consent gates
 
@@ -119,19 +132,25 @@ isn't delivered.
 
 ## Status
 
-**v0.2.0 — Phase 1 complete: the wipe engine and its consent
-gates are built.** The `beerus` package now contains the drive
-inventory (model, serial, size, interface, WWN for every
-attached drive), NIST 800-88 method selection, the consent-gate
-framework (typed-serial confirmation, full scope acknowledgment,
-an exact final confirmation phrase, single-use expiring tokens),
-and the engine that refuses to run without all of it — and
-refuses the boot drive and any drive it cannot identify,
-always. The real-drive executor ships disarmed; arming belongs
-to the boot-image entry point in a later phase, and destruction
-on real hardware is validated in Phase 5. 188 tests, all against
-synthetic targets. Verification and certificates are Phase 2;
-the bootable image is Phase 3 — see the [roadmap](docs/ROADMAP.md).
+**v0.3.0 — Phase 2 complete: verification and certificates are
+built.** On top of Phase 1 (drive inventory, NIST 800-88 method
+selection, the consent-gate framework, and the engine that
+refuses to run without all of it), the `beerus` package now
+verifies every wipe it can: overwrite wipes are read back across
+the full surface and checked byte-for-byte; firmware wipes are
+checked against the drive's own status plus a sampled read-back
+that discloses exactly what was sampled. The verdict — pass,
+fail, or not verified — is signed when it is minted and bound
+to the drive and the method that actually ran. A passing wipe
+earns a printable certificate of destruction; a failed or
+unverifiable one gets a plainly-marked failure report, and no
+path through the library produces a clean certificate for a
+drive that didn't earn it. 257 tests, all against synthetic
+targets, with an independent audit cycle completed (findings
+F1–F14 fixed and re-audited). The real-drive executor still
+ships disarmed; arming belongs to the boot-image entry point,
+and destruction on real hardware is validated in Phase 5. The
+bootable image is Phase 3 — see the [roadmap](docs/ROADMAP.md).
 
 One honest note on how this gets built: the bootable image is
 assembled on real hardware in the final phase. The repo versions
