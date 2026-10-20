@@ -19,6 +19,7 @@ from beerus.certificate import CertificateError
 from beerus.errors import TokenError
 from beerus.filewipe import (
     FAILED,
+    LINK_LEFT,
     OTHER_COPIES_DISCLOSURE,
     SKIPPED,
     SSD_FILE_DISCLOSURE,
@@ -290,6 +291,81 @@ def test_folder_with_a_failed_file_is_left_standing(tmp_path):
     assert result.failed == 1
     assert result.directories_left >= 1
     assert (tmp_path / "folder").is_dir()
+
+
+def test_file_token_expires_at_session_deadline_not_mint(tmp_path):
+    # Re-audit M4: the token must die at the SESSION deadline
+    # (like the drive gates'), not a fresh TTL from mint time.
+    import time
+
+    target = write(tmp_path / "victim.txt", b"12345678")
+    authority = FileGateAuthority(token_ttl_seconds=1.0)
+    scope = build_file_scope([target])
+    started = time.time()
+    session = authority.begin_session(scope)
+    time.sleep(0.5)
+    session.acknowledge_scope()
+    token = session.final_confirmation(scope.expected_phrase)
+    assert token.expires_at <= started + 1.05
+    time.sleep(0.6)  # past the deadline, inside the old window
+    engine = FileWipeEngine(authority)
+    with pytest.raises(TokenError):
+        engine.execute(scope, token)
+    assert target.read_bytes() == b"12345678"
+
+
+def test_link_swapped_for_regular_file_is_never_unlinked(tmp_path):
+    # Re-audit N1: a link entry replaced by a regular file
+    # after confirmation must be left alone — its data was
+    # never in the confirmed scope as a file.
+    target = write(tmp_path / "outside" / "target.txt", b"target data")
+    hold = tmp_path / "hold"
+    write(hold / "real.txt", b"real data")
+    link = hold / "link.txt"
+    os.symlink(target, link)
+    scope = build_file_scope([hold])
+    authority, token = confirm(scope)
+    os.unlink(link)
+    secret = write(hold / "link.txt", b"never confirmed secret")
+    result = FileWipeEngine(authority).execute(scope, token)
+    by_path = {o.path: o for o in result.outcomes}
+    assert by_path[str(secret)].status == FAILED
+    assert secret.read_bytes() == b"never confirmed secret"
+    assert by_path[str(hold / "real.txt")].status == WIPED_VERIFIED
+
+
+def test_link_replaced_by_another_link_is_left_alone(tmp_path):
+    # Re-audit N1: a swapped-in link is a different entry
+    # than the one confirmed — left in place, targets intact.
+    first = write(tmp_path / "outside" / "first.txt", b"first")
+    second = write(tmp_path / "outside" / "second.txt", b"second")
+    hold = tmp_path / "hold"
+    write(hold / "real.txt", b"real data")
+    link = hold / "link.txt"
+    os.symlink(first, link)
+    scope = build_file_scope([hold])
+    authority, token = confirm(scope)
+    os.unlink(link)
+    os.symlink(second, link)
+    result = FileWipeEngine(authority).execute(scope, token)
+    by_path = {o.path: o for o in result.outcomes}
+    assert by_path[str(link)].status == LINK_LEFT
+    assert os.path.islink(link)
+    assert first.read_bytes() == b"first"
+    assert second.read_bytes() == b"second"
+
+
+def test_result_authenticity_guards_wrong_types():
+    # Re-audit N2: the sibling verify functions get the same
+    # isinstance discipline as beerus.verify.
+    assert verify_file_result_authentic(None) is False
+    assert verify_file_result_authentic(object()) is False
+    assert verify_free_space_result_authentic("x") is False
+    assert verify_free_space_result_authentic(None) is False
+    with pytest.raises(CertificateError):
+        build_file_report(object(), "Tech", ssd=False)
+    with pytest.raises(CertificateError):
+        build_free_space_report(123, "Tech", ssd=False)
 
 
 # ---------------------------------------------------------------- free space
@@ -620,6 +696,29 @@ def test_report_refuses_a_tampered_result(tmp_path):
     assert not verify_file_result_authentic(fake)
     with pytest.raises(CertificateError):
         build_file_report(fake, "Skyler Test", ssd=False)
+
+
+def test_free_space_leftovers_are_counted_and_reported(
+    tmp_path, monkeypatch
+):
+    # Re-audit N4: filler that cannot be removed is counted
+    # in the signed result and described honestly — never
+    # waved through as if nothing were left.
+    real_unlink = os.unlink
+
+    def stubborn(path):
+        if "filler-" in os.path.basename(str(path)):
+            raise OSError("locked")
+        return real_unlink(path)
+
+    monkeypatch.setattr(os, "unlink", stubborn)
+    _live, _scope, result = _free_space_run(tmp_path)
+    assert result.ok is True
+    assert result.leftovers >= 1
+    assert verify_free_space_result_authentic(result)
+    assert "check the folder before deleting it" in result.detail
+    report = build_free_space_report(result, "Skyler Test", ssd=False)
+    assert "left behind" in "\n".join(report.summary_lines)
 
 
 def test_free_space_report(tmp_path):
