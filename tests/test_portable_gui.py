@@ -190,6 +190,13 @@ def test_blocked_drives_are_shown_greyed_with_reasons(
         item = window.drive_list.item(i)
         assert not (item.flags() & Qt.ItemFlag.ItemIsEnabled)
     assert window.drive_list.item(3).flags() & Qt.ItemFlag.ItemIsEnabled
+    # Re-audit N3: even a programmatic landing on a greyed row
+    # must not light the Start button.
+    window.operator_edit.setText("Skyler Test")
+    window.drive_list.setCurrentRow(0)
+    assert not window.start_button.isEnabled()
+    window.drive_list.setCurrentRow(3)
+    assert window.start_button.isEnabled()
 
 
 def test_boot_drive_uses_engine_wording_without_portable_context(
@@ -444,3 +451,48 @@ def test_free_space_mode_full_flow(qapp, tmp_path, documents_dir, monkeypatch):
     assert not (tmp_path / "Beerus free-space wipe").exists()
     reports = list((documents_dir / "reports").glob("beerus-free-space-report-*.html"))
     assert len(reports) == 1
+
+
+def test_free_space_leftover_verdict_state(
+    qapp, tmp_path, documents_dir, monkeypatch
+):
+    # Re-audit N4: a complete fill whose filler could not be
+    # removed gets its own verdict, not a clean COMPLETE.
+    live = tmp_path / "keep-me.txt"
+    live.write_bytes(b"important live data" * 100)
+    probe = lambda p: 24 * MIB  # noqa: E731
+    real_build = filewipe.build_free_space_scope
+    monkeypatch.setattr(
+        filewipe,
+        "build_free_space_scope",
+        lambda root: real_build(
+            root, free_bytes_probe=probe, reserve_bytes=MIB
+        ),
+    )
+    real_unlink = os.unlink
+
+    def stubborn(path):
+        if "filler-" in os.path.basename(str(path)):
+            raise OSError("locked")
+        return real_unlink(path)
+
+    monkeypatch.setattr(os, "unlink", stubborn)
+    authority = FileGateAuthority()
+    window = files_window(
+        documents_dir,
+        file_authority=authority,
+        free_space_engine=FreeSpaceEngine(
+            authority, free_bytes_probe=probe, chunk_bytes=MIB
+        ),
+    )
+    window.operator_edit.setText("Skyler Test")
+    window.mode_free_radio.setChecked(True)
+    window.volume_combo.setCurrentText(str(tmp_path))
+    window.start_free_button.click()
+    walk_file_gates(window, "WIPE FREE SPACE")
+    wait_for_page(window, window.page_result)
+    assert window.verdict_label.text() == (
+        "FREE-SPACE WIPE COMPLETE — FILLER LEFT BEHIND"
+    )
+    assert "left behind" in window.verification_view.toPlainText()
+    assert live.read_bytes() == b"important live data" * 100
