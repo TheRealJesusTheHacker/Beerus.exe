@@ -146,6 +146,22 @@ class FileExecutor:
                 "executor only ever writes to regular files — never "
                 "to a device."
             )
+        # The link refusal must be explicit, not delegated to
+        # O_NOFOLLOW alone: Windows has no O_NOFOLLOW and
+        # os.stat follows links, so without this check a
+        # symlink target would be opened — and overwritten
+        # through — on Windows.
+        try:
+            lst = os.lstat(self.target_path)
+        except OSError:
+            raise UnsafeTargetError(
+                "The target file could not be checked. Nothing was written."
+            ) from None
+        if stat.S_ISLNK(lst.st_mode):
+            raise UnsafeTargetError(
+                "The target is a link. The file-backed executor "
+                "never follows links — nothing was written."
+            )
         if st.st_size != drive.size_bytes:
             raise UnsafeTargetError(
                 "The target file's size does not match the drive "
