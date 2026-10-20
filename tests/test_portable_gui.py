@@ -255,3 +255,164 @@ def test_start_needs_an_operator_name(qapp, device_file, documents_dir):
     assert not window.start_button.isEnabled()
     window.operator_edit.setText("Skyler Test")
     assert window.start_button.isEnabled()
+
+
+# ---------------------------------------------------------------------
+# Files & folders mode
+# ---------------------------------------------------------------------
+
+from beerus import filewipe  # noqa: E402
+from beerus.filewipe import (  # noqa: E402
+    FileGateAuthority,
+    FileWipeEngine,
+    FreeSpaceEngine,
+)
+
+
+def files_window(documents_dir, **kwargs):
+    drive = make_drive()
+    engine = WipeEngine(
+        GateAuthority(),
+        FileExecutor("/nonexistent"),
+        enumerator=lambda: [drive],
+    )
+    return MainWindow(engine, GateAuthority(),
+                      documents_dir=documents_dir, **kwargs)
+
+
+def walk_file_gates(window, phrase):
+    assert window.stack.currentWidget() is window.page_scope
+    window.ack_button.click()
+    assert window.stack.currentWidget() is window.page_final
+    window.phrase_edit.setText(phrase)
+    window.erase_button.click()
+
+
+def test_files_mode_full_flow(qapp, tmp_path, documents_dir):
+    target = tmp_path / "tax-records.txt"
+    target.write_bytes(b"secret" * 100)
+    window = files_window(documents_dir)
+    window.operator_edit.setText("Skyler Test")
+    window.mode_files_radio.setChecked(True)
+    assert window.drive_list.isHidden()
+    assert not window.panel_files.isHidden()
+    window._add_path(str(target))
+    assert window.start_files_button.isEnabled()
+    window.start_files_button.click()
+    assert "tax-records.txt" in window.scope_view.toPlainText()
+    assert "1 file(s)" in window.scope_view.toPlainText()
+    walk_file_gates(window, "ERASE 1 FILE")
+    wait_for_page(window, window.page_result)
+    assert not target.exists()
+    assert window.verdict_label.text() == "FILE WIPE COMPLETE"
+    reports = list(documents_dir.glob("beerus-file-wipe-report-*.html"))
+    assert len(reports) == 1
+    html = reports[0].read_text(encoding="utf-8")
+    assert "File Wipe Report" in html
+    assert "tax-records.txt" in html
+    assert "not a certificate of destruction" in html
+
+
+def test_files_mode_wrong_phrase_wipes_nothing(qapp, tmp_path, documents_dir):
+    target = tmp_path / "keep.txt"
+    target.write_bytes(b"precious" * 50)
+    window = files_window(documents_dir)
+    window.operator_edit.setText("Skyler Test")
+    window.mode_files_radio.setChecked(True)
+    window._add_path(str(target))
+    window.start_files_button.click()
+    window.ack_button.click()
+    window.phrase_edit.setText("ERASE EVERYTHING")
+    window.erase_button.click()
+    assert window.stack.currentWidget() is window.page_message
+    assert target.read_bytes() == b"precious" * 50
+
+
+def test_files_mode_protected_location_refused_at_scope(
+    qapp, tmp_path, documents_dir
+):
+    protected = tmp_path / "protected"
+    protected.mkdir()
+    target = protected / "os-file.dll"
+    target.write_bytes(b"system" * 10)
+    window = files_window(
+        documents_dir, protected_roots=(str(protected),)
+    )
+    window.operator_edit.setText("Skyler Test")
+    window.mode_files_radio.setChecked(True)
+    window._add_path(str(target))
+    window.start_files_button.click()
+    assert window.stack.currentWidget() is window.page_message
+    assert "protected Windows folder" in window.message_label.text()
+    assert target.read_bytes() == b"system" * 10
+
+
+def test_files_mode_locked_file_reported_in_result(
+    qapp, tmp_path, documents_dir
+):
+    target = tmp_path / "locked.txt"
+    target.write_bytes(b"in use" * 40)
+
+    def seam(path, flags, original_open):
+        raise PermissionError("simulated Windows lock")
+
+    authority = FileGateAuthority()
+    window = files_window(
+        documents_dir,
+        file_authority=authority,
+        file_engine=FileWipeEngine(authority, open_seam=seam),
+    )
+    window.operator_edit.setText("Skyler Test")
+    window.mode_files_radio.setChecked(True)
+    window._add_path(str(target))
+    window.start_files_button.click()
+    walk_file_gates(window, "ERASE 1 FILE")
+    wait_for_page(window, window.page_result)
+    assert "NOTHING WAS WIPED" in window.verdict_label.text()
+    assert "FAILED" in window.verification_view.toPlainText()
+    assert "locked" in window.verification_view.toPlainText()
+    assert target.read_bytes() == b"in use" * 40
+    reports = list(documents_dir.glob("beerus-file-wipe-report-*.html"))
+    assert len(reports) == 1
+
+
+# ---------------------------------------------------------------------
+# Free-space mode
+# ---------------------------------------------------------------------
+
+
+def test_free_space_mode_full_flow(qapp, tmp_path, documents_dir, monkeypatch):
+    live = tmp_path / "keep-me.txt"
+    live.write_bytes(b"important live data" * 100)
+    probe = lambda p: 24 * MIB  # noqa: E731
+    real_build = filewipe.build_free_space_scope
+    monkeypatch.setattr(
+        filewipe,
+        "build_free_space_scope",
+        lambda root: real_build(
+            root, free_bytes_probe=probe, reserve_bytes=MIB
+        ),
+    )
+    authority = FileGateAuthority()
+    window = files_window(
+        documents_dir,
+        file_authority=authority,
+        free_space_engine=FreeSpaceEngine(
+            authority, free_bytes_probe=probe, chunk_bytes=MIB
+        ),
+    )
+    window.operator_edit.setText("Skyler Test")
+    window.mode_free_radio.setChecked(True)
+    assert not window.panel_free.isHidden()
+    window.volume_combo.setCurrentText(str(tmp_path))
+    assert window.start_free_button.isEnabled()
+    window.start_free_button.click()
+    assert window.stack.currentWidget() is window.page_scope
+    assert "safety margin" in window.scope_view.toPlainText()
+    walk_file_gates(window, "WIPE FREE SPACE")
+    wait_for_page(window, window.page_result)
+    assert window.verdict_label.text() == "FREE-SPACE WIPE COMPLETE"
+    assert live.read_bytes() == b"important live data" * 100
+    assert not (tmp_path / "Beerus free-space wipe").exists()
+    reports = list(documents_dir.glob("beerus-free-space-report-*.html"))
+    assert len(reports) == 1
