@@ -713,7 +713,7 @@ def test_verify_signs_the_actual_method_label_when_given():
 class AlignedOnlySurface(FakeSurface):
     """A surface with Windows raw-device manners: any read whose
     offset is not a multiple of the 512-byte sector size is
-    refused with EINVAL, exactly as a real \\.\PhysicalDrive
+    refused with EINVAL, exactly as a real PhysicalDrive
     read behaved in the kit-hunt probe on windows-latest."""
 
     def read_at(self, offset: int, length: int) -> bytes:

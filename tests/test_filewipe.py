@@ -500,10 +500,23 @@ def test_swap_detected_by_open_seam_fstat(tmp_path):
 
 def test_same_size_in_place_change_is_detected(tmp_path):
     # M2: same inode, same size, new content — the modification
-    # stamp in the scope identity catches it.
+    # stamp in the scope identity catches it. The stamp is moved
+    # explicitly: on Windows the filesystem's write-time tick
+    # is coarse and lazily updated, so a bare rewrite can land
+    # in the SAME tick the scope recorded — the documented
+    # bound the identity check cannot see through (module
+    # docstring) — and the test then asserts timing luck
+    # instead of the check (kit-hunt: intermittent failure on
+    # windows-latest, run 39440012742). A moved stamp is the
+    # change this test means, on every platform.
     target = write(tmp_path / "changing.txt")
     scope = build_file_scope([target])
     target.write_bytes(b"\x41" * len(DATA))
+    st = os.lstat(target)
+    os.utime(
+        target,
+        ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000),
+    )
     result = run_wipe(scope)
     assert result.outcomes[0].status == FAILED
     assert target.read_bytes() == b"\x41" * len(DATA)
