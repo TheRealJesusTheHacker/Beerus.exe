@@ -15,7 +15,15 @@ The scope is fixed before anything runs. Folders are walked at
 scope-build time: the file count and total bytes the operator
 confirms are exactly what execution can touch. Symbolic links
 and junctions are recorded in the scope but never followed, so a
-link cannot widen a wipe beyond what was announced.
+link cannot widen a wipe beyond what was announced. Each scoped
+file is bound to its identity (device, inode, size, modification
+stamp): execution re-verifies all of it before opening and again
+on the opened descriptor, and a file swapped after confirmation
+is left alone. Protection checks run on fully resolved paths, so
+a linked parent folder cannot smuggle a protected file in under
+an innocent name. A file that has more than one name (a
+hardlink) is refused at scope build — wiping one name would
+destroy the data at its other names, which were never listed.
 
 Consent mirrors the drive gates: a scope acknowledgment over the
 exact listing, an exact typed phrase naming the count, and a
@@ -70,6 +78,12 @@ __all__ = [
     "SSD_FILE_DISCLOSURE",
     "SSD_FREE_SPACE_DISCLOSURE",
     "OTHER_COPIES_DISCLOSURE",
+    "WIPED_VERIFIED",
+    "WIPED_UNVERIFIED",
+    "FAILED",
+    "SKIPPED",
+    "LINK_REMOVED",
+    "LINK_LEFT",
     "FileGateAuthority",
     "FileGateSession",
     "FileConfirmationToken",
@@ -130,6 +144,11 @@ WIPED_VERIFIED = "wiped_verified"
 WIPED_UNVERIFIED = "wiped_unverified"
 FAILED = "failed"
 SKIPPED = "skipped"
+# Links are never followed and carry no data of their own; a
+# removed link is its own outcome, not a "skip" — the run did
+# exactly what the scope announced for it.
+LINK_REMOVED = "link_removed"
+LINK_LEFT = "link_left"
 
 _CHUNK = 1024 * 1024
 _FILL_CHUNK = 16 * 1024 * 1024
@@ -149,6 +168,20 @@ def _mac(payload: str) -> str:
     ).hexdigest()
 
 
+def _feed(hasher, text: str) -> None:
+    """Feed one field into a digest, length-prefixed.
+
+    Plain delimiter joining is ambiguous — a crafted filename
+    containing the delimiter could repartition the encoded
+    fields and leave the digest unchanged (audit finding L1).
+    Length-prefixing every field makes the encoding injective.
+    """
+    data = str(text).encode("utf-8", "surrogateescape")
+    hasher.update(str(len(data)).encode("ascii"))
+    hasher.update(b":")
+    hasher.update(data)
+
+
 def _canonical_result(
     kind: str,
     scope_hash: str,
@@ -156,10 +189,16 @@ def _canonical_result(
     completed_at: float,
     lines: tuple[str, ...],
 ) -> str:
-    payload = "\n".join(
-        [kind, scope_hash, repr(started_at), repr(completed_at), *lines]
-    )
-    return _mac(payload)
+    digest = hashlib.sha256()
+    for field in (
+        kind,
+        scope_hash,
+        repr(started_at),
+        repr(completed_at),
+        *lines,
+    ):
+        _feed(digest, field)
+    return _mac(digest.hexdigest())
 
 
 # --------------------------------------------------------------------------
@@ -192,11 +231,31 @@ def _normalized(path) -> str:
     return text
 
 
+def _resolved(path) -> str:
+    """The canonical location of ``path``, links resolved.
+
+    Protection decisions are made on this, never on the textual
+    path alone: a folder that is a link or junction into a
+    protected location must be judged by where it actually
+    points (audit finding H1).
+    """
+    text = os.path.realpath(os.path.abspath(str(path)))
+    text = os.path.normpath(text)
+    if os.name == "nt":
+        text = text.lower()
+    return text
+
+
 def is_protected_path(path, protected_roots) -> str | None:
-    """The protected root containing ``path``, or ``None``."""
-    target = _normalized(path)
+    """The protected root containing ``path``, or ``None``.
+
+    Both sides are compared fully resolved, so a symlinked or
+    junctioned parent directory cannot smuggle a protected file
+    past the check under an innocent-looking name.
+    """
+    target = _resolved(path)
     for root in protected_roots:
-        base = _normalized(root)
+        base = _resolved(root)
         if target == base or target.startswith(base + os.sep):
             return root
     return None
@@ -216,6 +275,13 @@ class FileScopeEntry:
     path: str
     size_bytes: int
     kind: str  # "file" | "link" | "special"
+    # The file's identity at scope-build time (files only).
+    # Execution re-verifies all of it — before opening and again
+    # on the opened descriptor — so a file swapped after
+    # confirmation is detected and left alone (audit M1/M2).
+    dev: int = 0
+    ino: int = 0
+    mtime_ns: int = 0
 
 
 @dataclass(frozen=True)
@@ -260,13 +326,20 @@ def build_file_scope(paths, *, protected_roots=None) -> FileScope:
     if protected_roots is None:
         protected_roots = default_protected_roots()
     roots: list[str] = []
-    entries: dict[str, FileScopeEntry] = {}
+    entries: dict = {}
     directories: set[str] = set()
 
-    def add_entry(path: str, kind: str, size: int) -> None:
-        key = _normalized(path)
+    def add_entry(entry: FileScopeEntry) -> None:
+        # Dedupe on identity, not spelling: the same physical
+        # file reached through an aliased (linked) parent folder
+        # is ONE file, counted once (audit finding M3). Links
+        # and special entries dedupe on their path.
+        if entry.kind == "file":
+            key = ("ino", entry.dev, entry.ino)
+        else:
+            key = ("path", _normalized(entry.path))
         if key not in entries:
-            entries[key] = FileScopeEntry(path=path, size_bytes=size, kind=kind)
+            entries[key] = entry
 
     def refuse_if_protected(path: str) -> None:
         root = is_protected_path(path, protected_roots)
@@ -278,6 +351,33 @@ def build_file_scope(paths, *, protected_roots=None) -> FileScope:
                 "build the list again."
             )
 
+    def add_file(path: str) -> None:
+        refuse_if_protected(path)
+        st = os.lstat(path)
+        if st.st_nlink > 1:
+            # The same data under more than one name: wiping
+            # this path would destroy data at names that are
+            # NOT in the announced scope (audit finding H2).
+            raise FileScopeError(
+                f"“{path}” is the same data under more than one "
+                f"name (it has {st.st_nlink} names). Wiping it "
+                "would also destroy the data at its other "
+                "name(s), which are not in this list — and "
+                "Beerus only ever touches what is listed. "
+                "Nothing was wiped. Remove the other name(s) "
+                "first, or take this file out of the list."
+            )
+        add_entry(
+            FileScopeEntry(
+                path=path,
+                size_bytes=st.st_size,
+                kind="file",
+                dev=st.st_dev,
+                ino=st.st_ino,
+                mtime_ns=st.st_mtime_ns,
+            )
+        )
+
     for raw in paths:
         path = os.path.normpath(os.path.abspath(str(raw)))
         if not os.path.lexists(path):
@@ -288,10 +388,10 @@ def build_file_scope(paths, *, protected_roots=None) -> FileScope:
         refuse_if_protected(path)
         roots.append(path)
         if os.path.islink(path):
-            add_entry(path, "link", 0)
+            add_entry(FileScopeEntry(path, 0, "link"))
             continue
         if os.path.isfile(path):
-            add_entry(path, "file", os.path.getsize(path))
+            add_file(path)
             continue
         if os.path.isdir(path):
             directories.add(path)
@@ -303,7 +403,7 @@ def build_file_scope(paths, *, protected_roots=None) -> FileScope:
                 for name in sorted(dirnames):
                     full = os.path.join(dirpath, name)
                     if os.path.islink(full):
-                        add_entry(full, "link", 0)
+                        add_entry(FileScopeEntry(full, 0, "link"))
                     else:
                         real_dirs.append(name)
                         directories.add(full)
@@ -311,13 +411,13 @@ def build_file_scope(paths, *, protected_roots=None) -> FileScope:
                 for name in sorted(filenames):
                     full = os.path.join(dirpath, name)
                     if os.path.islink(full):
-                        add_entry(full, "link", 0)
+                        add_entry(FileScopeEntry(full, 0, "link"))
                     elif os.path.isfile(full):
-                        add_entry(full, "file", os.path.getsize(full))
+                        add_file(full)
                     else:
-                        add_entry(full, "special", 0)
+                        add_entry(FileScopeEntry(full, 0, "special"))
             continue
-        add_entry(path, "special", 0)
+        add_entry(FileScopeEntry(path, 0, "special"))
 
     ordered = tuple(sorted(entries.values(), key=lambda e: e.path))
     file_entries = [e for e in ordered if e.kind == "file"]
@@ -331,11 +431,15 @@ def build_file_scope(paths, *, protected_roots=None) -> FileScope:
         )
     digest = hashlib.sha256()
     for entry in ordered:
-        digest.update(
-            f"{entry.kind}|{entry.size_bytes}|{entry.path}\n".encode(
-                "utf-8", "surrogateescape"
-            )
-        )
+        for field in (
+            entry.kind,
+            str(entry.dev),
+            str(entry.ino),
+            str(entry.size_bytes),
+            str(entry.mtime_ns),
+            entry.path,
+        ):
+            _feed(digest, field)
     return FileScope(
         root_paths=tuple(roots),
         entries=ordered,
@@ -412,11 +516,10 @@ def build_free_space_scope(
         ) from None
     if reserve_bytes is None:
         reserve_bytes = max(16 * 1024 * 1024, free // 50)
-    digest = hashlib.sha256(
-        f"freespace|{root}|{free}|{reserve_bytes}".encode(
-            "utf-8", "surrogateescape"
-        )
-    ).hexdigest()
+    digest = hashlib.sha256()
+    for field in ("freespace", root, str(free), str(reserve_bytes)):
+        _feed(digest, field)
+    digest = digest.hexdigest()
     return FreeSpaceScope(
         volume_root=root,
         free_bytes_estimate=free,
@@ -479,8 +582,8 @@ class FileGateAuthority:
         self._ttl = float(token_ttl_seconds)
         self._consumed: set[str] = set()
 
-    def begin_session(self, scope) -> "FileGateSession":
-        return FileGateSession(self, scope)
+    def begin_session(self, scope, *, ssd: bool = False) -> "FileGateSession":
+        return FileGateSession(self, scope, ssd=ssd)
 
     def _mac(self, scope_hash: str, session_id: str, expires_at: float) -> str:
         payload = f"{scope_hash}|{session_id}|{expires_at!r}"
@@ -496,7 +599,11 @@ class FileGateAuthority:
         )
 
     def verify(self, scope, token) -> bool:
-        if token is None:
+        # Type guards first: a token or scope of the wrong kind
+        # is a refusal, never an AttributeError (audit L2).
+        if not isinstance(token, FileConfirmationToken):
+            return False
+        if not isinstance(scope, (FileScope, FreeSpaceScope)):
             return False
         expected = self._mac(token.scope_hash, token.session_id, token.expires_at)
         if not hmac.compare_digest(expected, token.mac):
@@ -514,21 +621,36 @@ class FileGateAuthority:
 
 
 class FileGateSession:
-    """One operator's walk through the file-mode consent gates."""
+    """One operator's walk through the file-mode consent gates.
 
-    def __init__(self, authority: FileGateAuthority, scope):
+    The session itself has a deadline, like the drive gates'
+    session: a scope acknowledged long ago must not stay
+    executable forever on a freshly minted token (audit M4).
+    The deadline is the authority's TTL, counted from the
+    moment the session begins.
+    """
+
+    def __init__(self, authority: FileGateAuthority, scope, *, ssd=False):
         self._authority = authority
         self._scope = scope
+        self._ssd = bool(ssd)
         self.scope_hash = scope.scope_hash
         self.expected_phrase = scope.expected_phrase
         self.session_id = secrets.token_hex(16)
         self.stage = FileSessionStage.STARTED
+        self._deadline = time.time() + authority._ttl
 
     def _require(self, *stages: FileSessionStage) -> None:
         if self.stage is FileSessionStage.INVALIDATED:
             raise TokenError(
                 "This confirmation was cancelled. Nothing was "
                 "wiped. Start again from the scope screen."
+            )
+        if time.time() > self._deadline:
+            self._invalidate()
+            raise TokenError(
+                "This confirmation took too long and expired. "
+                "Nothing was wiped. Start again."
             )
         if self.stage not in stages:
             raise TokenError(
@@ -542,8 +664,8 @@ class FileGateSession:
         self._require(FileSessionStage.STARTED)
         self.stage = FileSessionStage.SCOPE_ACKNOWLEDGED
         if isinstance(self._scope, FileScope):
-            return build_file_scope_text(self._scope, ssd=False)
-        return build_free_space_scope_text(self._scope, ssd=False)
+            return build_file_scope_text(self._scope, ssd=self._ssd)
+        return build_free_space_scope_text(self._scope, ssd=self._ssd)
 
     def final_confirmation(self, typed: str) -> FileConfirmationToken:
         self._require(FileSessionStage.SCOPE_ACKNOWLEDGED)
@@ -566,9 +688,10 @@ class FileGateSession:
 @dataclass(frozen=True)
 class FileItemOutcome:
     path: str
-    status: str  # WIPED_VERIFIED | WIPED_UNVERIFIED | FAILED | SKIPPED
+    status: str  # WIPED_VERIFIED | WIPED_UNVERIFIED | FAILED | SKIPPED | LINK_REMOVED | LINK_LEFT
     detail: str
     bytes_written: int = 0
+    kind: str = "file"  # mirrors the scope entry kind
 
 
 @dataclass(frozen=True)
@@ -598,6 +721,10 @@ class FileWipeResult:
         return sum(1 for o in self.outcomes if o.status == SKIPPED)
 
     @property
+    def links_removed(self) -> int:
+        return sum(1 for o in self.outcomes if o.status == LINK_REMOVED)
+
+    @property
     def total_bytes_written(self) -> int:
         return sum(o.bytes_written for o in self.outcomes)
 
@@ -617,11 +744,16 @@ class FreeSpaceResult:
 
 
 def _outcome_lines(result: FileWipeResult) -> tuple[str, ...]:
+    # Each outcome is ONE field of the canonical encoding (the
+    # encoder length-prefixes fields), so delimiters inside a
+    # path or detail cannot repartition the record (audit L1).
     return tuple(
-        f"{o.path}|{o.status}|{o.detail}|{o.bytes_written}"
+        "\x1f".join(
+            (o.path, o.kind, o.status, o.detail, str(o.bytes_written))
+        )
         for o in result.outcomes
     ) + (
-        f"dirs|{result.directories_removed}|{result.directories_left}",
+        f"dirs\x1f{result.directories_removed}\x1f{result.directories_left}",
     )
 
 
@@ -665,6 +797,14 @@ _CHANGED_DETAIL = (
     "the wipe again to include its new state."
 )
 
+_HARDLINK_DETAIL = (
+    "This file gained another name after the scope was "
+    "confirmed (the same data now exists under more than one "
+    "name), so it was left alone — wiping it would destroy data "
+    "at a name that was never listed. Run the wipe again to see "
+    "its new state."
+)
+
 
 def _fsync_directory(path: str) -> None:
     if os.name != "posix":
@@ -688,12 +828,23 @@ def _silent_emit(event) -> None:
 class FileWipeEngine:
     """Overwrites, verifies, and only then removes scoped files."""
 
-    def __init__(self, authority: FileGateAuthority, *, open_seam=None):
+    def __init__(
+        self, authority: FileGateAuthority, *, open_seam=None,
+        protected_roots=None,
+    ):
         self._authority = authority
         # open_seam exists so tests can simulate a Windows-locked
         # file deterministically. It receives (path, flags,
         # original_open) and returns a file descriptor.
         self._open_seam = open_seam
+        # The execution-time protected re-check uses the SAME
+        # roots the scope was built with (audit finding H1) —
+        # never a second, different list.
+        self._protected_roots = (
+            tuple(protected_roots)
+            if protected_roots is not None
+            else default_protected_roots()
+        )
 
     def _open_write(self, path: str) -> int:
         flags = os.O_WRONLY
@@ -704,6 +855,11 @@ class FileWipeEngine:
         return os.open(path, flags)
 
     def execute(self, scope: FileScope, token, emit=None) -> FileWipeResult:
+        if not isinstance(scope, FileScope):
+            raise TokenError(
+                "That confirmation belongs to a different kind "
+                "of wipe. Nothing was wiped."
+            )
         if not self._authority.verify(scope, token):
             raise TokenError(
                 "This wipe was not confirmed, or the confirmation "
@@ -748,6 +904,7 @@ class FileWipeEngine:
                 SKIPPED,
                 "This is not a regular file (it is a special "
                 "system entry). It was left exactly as it was.",
+                kind="special",
             )
         try:
             st = os.lstat(path)
@@ -762,9 +919,21 @@ class FileWipeEngine:
             return FileItemOutcome(path, FAILED, _LOCKED_DETAIL)
         if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
             return FileItemOutcome(path, FAILED, _CHANGED_DETAIL)
-        if st.st_size != entry.size_bytes:
+        # Identity, not just size: the file at this path must be
+        # the very file the operator confirmed — same device,
+        # same inode, same size, same modification stamp. A swap
+        # after confirmation (even a same-size one) is detected
+        # and left alone (audit M1/M2).
+        if (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns) != (
+            entry.dev,
+            entry.ino,
+            entry.size_bytes,
+            entry.mtime_ns,
+        ):
             return FileItemOutcome(path, FAILED, _CHANGED_DETAIL)
-        if is_protected_path(path, default_protected_roots()) is not None:
+        if st.st_nlink > 1:
+            return FileItemOutcome(path, FAILED, _HARDLINK_DETAIL)
+        if is_protected_path(path, self._protected_roots) is not None:
             return FileItemOutcome(
                 path,
                 FAILED,
@@ -788,6 +957,19 @@ class FileWipeEngine:
                 return FileItemOutcome(path, FAILED, _LOCKED_DETAIL)
             except OSError:
                 return FileItemOutcome(path, FAILED, _LOCKED_DETAIL)
+            # Re-verify the opened descriptor itself — the same
+            # guarantee beerus.executor.FileExecutor gives: the
+            # path could have been swapped between the stat
+            # above and this open (audit M1).
+            fst = os.fstat(fd)
+            if (
+                not stat.S_ISREG(fst.st_mode)
+                or (fst.st_dev, fst.st_ino, fst.st_size)
+                != (st.st_dev, st.st_ino, size)
+                or fst.st_nlink != 1
+            ):
+                os.close(fd)
+                return FileItemOutcome(path, FAILED, _CHANGED_DETAIL)
             try:
                 bytes_written = run_overwrite(
                     fd, size, OVERWRITE_PASSES, emit, path
@@ -928,19 +1110,21 @@ class FileWipeEngine:
             _fsync_directory(os.path.dirname(entry.path) or ".")
             return FileItemOutcome(
                 entry.path,
-                SKIPPED,
+                LINK_REMOVED,
                 "This was a link. Links are never followed — the "
                 "link itself was removed and its target was not "
                 "touched.",
+                kind="link",
             )
         except OSError:
             return FileItemOutcome(
                 entry.path,
-                SKIPPED,
+                LINK_LEFT,
                 "This was a link. Links are never followed, so "
                 "nothing was wiped through it; the link itself "
                 "could not be removed (Windows refused). Its "
                 "target was not touched.",
+                kind="link",
             )
 
     def _remove_directories(self, scope: FileScope, outcomes):
@@ -990,6 +1174,11 @@ class FreeSpaceEngine:
         self._chunk = chunk_bytes
 
     def execute(self, scope: FreeSpaceScope, token, emit=None) -> FreeSpaceResult:
+        if not isinstance(scope, FreeSpaceScope):
+            raise TokenError(
+                "That confirmation belongs to a different kind "
+                "of wipe. Nothing was wiped."
+            )
         if not self._authority.verify(scope, token):
             raise TokenError(
                 "This wipe was not confirmed, or the confirmation "
@@ -1004,6 +1193,22 @@ class FreeSpaceEngine:
         bytes_filled = 0
         passes_completed = 0
         detail_notes: list[str] = []
+        # The filler folder must be Beerus's own, created by
+        # this run. A pre-existing folder that is a link, or that
+        # holds anything at all, is refused — Beerus never
+        # writes through a link into another volume, and never
+        # adopts or deletes files it did not create (audit M6).
+        if os.path.islink(filler_dir) or (
+            os.path.isdir(filler_dir) and os.listdir(filler_dir)
+        ):
+            raise WipeFailedError(
+                "A folder named “Beerus free-space wipe” is "
+                "already on that volume, and it is a link or "
+                "holds things Beerus did not put there. Beerus "
+                "will not write into it or delete its contents. "
+                "Remove or rename that folder yourself, then "
+                "run the wipe again. Nothing was written."
+            )
         try:
             os.makedirs(filler_dir, exist_ok=True)
         except OSError:
@@ -1027,13 +1232,30 @@ class FreeSpaceEngine:
                     )
                 passes_completed += 1
             bytes_checked = self._verify_fillers(fillers)
-            ok = bytes_checked is not None
-            if not ok:
+            verify_ok = bytes_checked is not None
+            if not verify_ok:
                 detail_notes.append(
                     "Read-back checks of the filler data did not "
                     "all match the final pass, so this run is "
                     "reported as NOT fully verified."
                 )
+            # "Complete" requires the fill to have reached the
+            # amount the operator confirmed. A volume that had
+            # less free space than the scope estimated (other
+            # programs write too) yields a partial fill — which
+            # is reported as such, never rounded up (audit M5).
+            shortfall = bytes_filled < scope.expected_fill_bytes
+            if shortfall:
+                detail_notes.append(
+                    f"Only {_human_size(bytes_filled)} of the "
+                    f"planned {_human_size(scope.expected_fill_bytes)} "
+                    "could be filled — the volume had less free "
+                    "space than when the scope was confirmed. "
+                    "The space that was filled kept its "
+                    "overwrites; run the wipe again to cover "
+                    "the rest."
+                )
+            ok = verify_ok and not shortfall
             bytes_checked_value = bytes_checked or 0
         except OSError:
             detail_notes.append(
@@ -1114,11 +1336,12 @@ class FreeSpaceEngine:
                         filler, os.O_WRONLY | os.O_CREAT | os.O_EXCL
                     )
                 except FileExistsError:
-                    # Leftover from an interrupted run: its data
-                    # is filler by definition; adopt and rewrite.
-                    if filler not in fillers:
-                        fillers.append(filler)
-                    continue
+                    # The folder was verified empty at the start
+                    # of this run and names are sequential, so a
+                    # collision means something else is writing
+                    # here. Stop — the shortfall is reported,
+                    # never silently absorbed (audit M6).
+                    break
                 except OSError:
                     break
                 fillers.append(filler)
@@ -1282,14 +1505,23 @@ def build_file_report(
     completed = datetime.fromtimestamp(result.completed_at).strftime(
         "%Y-%m-%d %H:%M:%S"
     )
+    counted = (
+        result.wiped_verified
+        + result.wiped_unverified
+        + result.failed
+        + result.skipped
+        + result.links_removed
+        + sum(1 for o in result.outcomes if o.status == LINK_LEFT)
+    )
     summary = [
-        f"Items confirmed in scope: "
-        f"{result.wiped_verified + result.wiped_unverified + result.failed + result.skipped}",
+        f"Items confirmed in scope: {counted}",
         f"Wiped and verified: {result.wiped_verified}",
         f"Wiped, could not be verified (final pass is random): "
         f"{result.wiped_unverified}",
         f"Failed: {result.failed}",
         f"Skipped: {result.skipped}",
+        f"Links removed (their targets were not touched): "
+        f"{result.links_removed}",
         f"Total data overwritten: {_human_size(result.total_bytes_written)}",
         f"Folders removed afterwards: {result.directories_removed} "
         f"(left standing: {result.directories_left})",
@@ -1299,6 +1531,8 @@ def build_file_report(
         WIPED_UNVERIFIED: "WIPED — NOT VERIFIED",
         FAILED: "FAILED",
         SKIPPED: "SKIPPED",
+        LINK_REMOVED: "LINK REMOVED — TARGET NOT TOUCHED",
+        LINK_LEFT: "LINK LEFT IN PLACE",
     }
     items = tuple(
         f"{labels[o.status]} — {o.path} — {o.detail}"
