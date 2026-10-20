@@ -210,7 +210,7 @@ and free-space wiping, under an HMAC-bound consent authority
 that mirrors the drive gates. The release workflow builds
 `BeerusPortable.zip` on Windows — full test suite offscreen,
 one-folder PyInstaller build, a launch smoke test of the
-staged app, and SHA-256 checksums. 310 tests at this version,
+staged app, and SHA-256 checksums. 325 tests at this version,
 all against synthetic targets; nothing in the suite or in CI
 ever touches a real drive. The whole-drive executor still
 ships disarmed (both factors) in every build; destruction on
