@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beerus"
+version = "0.2.0"
+description = "BEERUS.EXE — Sentinel Safeguard LLC secure drive destruction (the Destruct Key Pro)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Sentinel Safeguard LLC" },
+]
+
+[tool.setuptools.packages.find]
+include = ["beerus*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
