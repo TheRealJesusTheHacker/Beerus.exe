@@ -24,6 +24,8 @@ the **NIST 800-88** media sanitization standard — the standard
 governments and enterprises use when "deleted" has to actually
 mean gone.
 
+**Portable form:** Beerus's portable edition is the bootable USB image itself — the Destruct Key Pro USB is its portable form, with no separate portable download or installer.
+
 And every wipe produces a **certificate of destruction**: the
 paper trail that turns end-of-life hardware into a documented,
 billable Sentinel service.
