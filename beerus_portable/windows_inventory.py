@@ -261,6 +261,20 @@ def parse_windows_inventory(
         if letter and number in by_number:
             volume_letters.add((letter, by_number[number].fingerprint))
 
+    # Fail closed on the one fact everything else depends on:
+    # if Windows' drives were read but the system drive could
+    # not be identified among them, listing drives at all would
+    # present the system drive as an ordinary target. Refuse
+    # the whole inventory instead (audit gap, inventory seam).
+    wanted_system = (system_letter or "").strip().upper().rstrip(":")
+    if drives and wanted_system and not system_fingerprints:
+        raise BeerusError(
+            "Beerus Portable could not tell which drive Windows "
+            "is running from, so it will not list drives at all. "
+            "Nothing was wiped. Restart Beerus Portable; if this "
+            "keeps happening, use the Destruct Key Pro instead."
+        )
+
     context = PortableDriveContext(
         system_fingerprints=frozenset(system_fingerprints),
         own_fingerprints=frozenset(own_fingerprints),
