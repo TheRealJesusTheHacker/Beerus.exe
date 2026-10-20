@@ -13,6 +13,21 @@ from pathlib import Path
 
 import pytest
 
+# The definition under test is a Debian live image: POSIX file
+# modes (the executable hook) and symlinks (the wants/ entry)
+# are part of its meaning, and a Windows checkout can represent
+# neither — git on Windows materializes files without an exec
+# bit and the symlink as a plain copy, so on Windows the
+# checker would be grading the checkout, not the definition.
+# These tests run where images are defined and built: Linux.
+# (Kit-hunt v0.5.1: the windows-latest release pipeline was
+# this file's first Windows run — 39 checkout-artifact
+# failures, none of them about the definition itself.)
+pytestmark = pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="Debian image definition checks need POSIX modes/symlinks (Linux)",
+)
+
 import beerus
 from beerus.bootmedium import (
     DEFAULT_DOCUMENTS_DIR,

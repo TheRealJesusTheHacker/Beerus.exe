@@ -252,6 +252,27 @@ def _resolved(path) -> str:
     return text
 
 
+def _is_link(path) -> bool:
+    """True when *path* is a link of any kind Beerus must not follow.
+
+    That is a symbolic link — or a Windows **junction**. The
+    two are different reparse points, and Python's
+    ``os.path.islink`` reports junctions as NOT links (proven
+    on a real windows-latest machine in the kit hunt: a
+    junction inside a selected folder was silently descended,
+    and a file outside the folder was scoped as if it lived
+    inside it). ``os.path.isjunction`` (Python 3.12+) exists
+    for exactly this gap; on POSIX it simply returns False.
+    Every link decision in this module goes through here, so a
+    junction is recorded in the scope as a link, never
+    followed, exactly as the module docstring promises.
+    """
+    if os.path.islink(path):
+        return True
+    isjunction = getattr(os.path, "isjunction", None)
+    return bool(isjunction is not None and isjunction(path))
+
+
 def is_protected_path(path, protected_roots) -> str | None:
     """The protected root containing ``path``, or ``None``.
 
@@ -418,7 +439,7 @@ def build_file_scope(paths, *, protected_roots=None) -> FileScope:
             )
         refuse_if_protected(path)
         roots.append(path)
-        if os.path.islink(path):
+        if _is_link(path):
             add_link(path)
             continue
         if os.path.isfile(path):
@@ -433,7 +454,7 @@ def build_file_scope(paths, *, protected_roots=None) -> FileScope:
                 real_dirs = []
                 for name in sorted(dirnames):
                     full = os.path.join(dirpath, name)
-                    if os.path.islink(full):
+                    if _is_link(full):
                         add_link(full)
                     else:
                         real_dirs.append(name)
@@ -441,7 +462,7 @@ def build_file_scope(paths, *, protected_roots=None) -> FileScope:
                 dirnames[:] = real_dirs
                 for name in sorted(filenames):
                     full = os.path.join(dirpath, name)
-                    if os.path.islink(full):
+                    if _is_link(full):
                         add_link(full)
                     elif os.path.isfile(full):
                         add_file(full)
@@ -1193,7 +1214,11 @@ class FileWipeEngine:
                 "was not touched.",
                 kind="link",
             )
-        if not stat.S_ISLNK(st.st_mode):
+        if not (stat.S_ISLNK(st.st_mode) or _is_link(path)):
+            # A junction's lstat mode is a directory, not a
+            # link — without the _is_link half of this check a
+            # junction scope entry could never be removed and
+            # would be reported as changed (kit-hunt finding).
             return FileItemOutcome(
                 path, FAILED, _CHANGED_DETAIL, kind="link"
             )
@@ -1303,7 +1328,7 @@ class FreeSpaceEngine:
         # holds anything at all, is refused — Beerus never
         # writes through a link into another volume, and never
         # adopts or deletes files it did not create (audit M6).
-        if os.path.islink(filler_dir) or (
+        if _is_link(filler_dir) or (
             os.path.isdir(filler_dir) and os.listdir(filler_dir)
         ):
             raise WipeFailedError(

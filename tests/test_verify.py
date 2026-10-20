@@ -705,3 +705,33 @@ def test_verify_signs_the_actual_method_label_when_given():
     )
     assert fallback.method_label == "Actual method that ran"
     assert verify_result_authentic(fallback) is True
+
+
+# ------------------------------------------------------- kit-hunt regression
+
+
+class AlignedOnlySurface(FakeSurface):
+    """A surface with Windows raw-device manners: any read whose
+    offset is not a multiple of the 512-byte sector size is
+    refused with EINVAL, exactly as a real \\.\PhysicalDrive
+    read behaved in the kit-hunt probe on windows-latest."""
+
+    def read_at(self, offset: int, length: int) -> bytes:
+        if offset % 512 != 0:
+            raise OSError(22, "Invalid argument")
+        return super().read_at(offset, length)
+
+
+def test_sampled_verification_aligns_its_read_offsets():
+    # Pre-fix: sampled region starts were spread arithmetically
+    # over the surface and landed unaligned, so on a raw
+    # Windows drive every sampled read would fail and the
+    # verdict would be NOT VERIFIED despite a clean erase.
+    drive = make_ssd(size_bytes=8 * MIB + 12345)
+    plan = select_plan(drive)
+    surface = AlignedOnlySurface(bytes(drive.size_bytes))
+    verifier = WipeVerifier(lambda d: surface)
+    result = verifier.verify(drive, plan)
+    assert result.verdict is VerificationVerdict.PASS
+    assert result.coverage == "sampled"
+    assert verify_result_authentic(result)

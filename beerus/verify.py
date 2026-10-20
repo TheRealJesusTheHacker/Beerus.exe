@@ -851,8 +851,18 @@ class WipeVerifier:
         if size <= chunk:
             region_offsets = [0]
         else:
+            # Region starts are aligned down to a 512-byte
+            # sector boundary: raw device reads on Windows
+            # refuse unaligned offsets outright (Errno 22,
+            # proven on a real windows-latest machine in the
+            # kit hunt), which would turn every sampled
+            # verification on a Windows raw drive into a
+            # read failure — an honest NOT VERIFIED, but a
+            # needless one when aligning costs nothing.
             raw = [
-                (i * (size - chunk)) // (_SAMPLE_REGIONS - 1)
+                ((i * (size - chunk)) // (_SAMPLE_REGIONS - 1))
+                // 512
+                * 512
                 for i in range(_SAMPLE_REGIONS)
             ]
             seen: set[int] = set()

@@ -20,6 +20,7 @@ from beerus.errors import TokenError
 from beerus.filewipe import (
     FAILED,
     LINK_LEFT,
+    LINK_REMOVED,
     OTHER_COPIES_DISCLOSURE,
     SKIPPED,
     SSD_FILE_DISCLOSURE,
@@ -788,3 +789,92 @@ def test_free_space_scope_refuses_when_margin_leaves_nothing(tmp_path):
             tmp_path, free_bytes_probe=lambda p: 8 * MIB
         )
     assert "Nothing was wiped" in str(excinfo.value)
+
+
+def test_scope_records_a_junction_as_a_link_and_never_descends(
+    tmp_path, monkeypatch
+):
+    # Kit-hunt regression (probe-proven on windows-latest):
+    # os.path.islink reports a Windows junction as NOT a link,
+    # so the scope walk descended into it and scoped a file
+    # that lives OUTSIDE the selected folder. Junctions are
+    # simulated here by patching os.path.isjunction, which is
+    # the API the fix consults; the real-junction behavior on
+    # Windows itself is pinned by the nt-only test below.
+    import os as _os
+
+    root = tmp_path / "root"
+    junction = root / "linkdir"
+    junction.mkdir(parents=True)
+    (root / "inner.txt").write_bytes(b"i" * 50)
+    (junction / "secret.txt").write_bytes(b"s" * 50)
+    real_isjunction = getattr(_os.path, "isjunction", lambda p: False)
+    monkeypatch.setattr(
+        _os.path,
+        "isjunction",
+        lambda p: str(p) == str(junction) or real_isjunction(p),
+    )
+    scope = build_file_scope([str(root)], protected_roots=())
+    assert scope.total_files == 1
+    kinds = {entry.path: entry.kind for entry in scope.entries}
+    assert kinds[str(junction)] == "link"
+    assert not any("secret.txt" in path for path in kinds)
+
+
+def test_junction_target_data_is_never_wiped(tmp_path, monkeypatch):
+    # The execution half of the junction finding: even through
+    # the full gated engine, the file behind a junction keeps
+    # its data and its entry; only the confirmed real file is
+    # wiped, and the junction itself is treated as a link.
+    import os as _os
+
+    root = tmp_path / "root"
+    junction = root / "linkdir"
+    junction.mkdir(parents=True)
+    inner = root / "inner.txt"
+    inner.write_bytes(b"i" * 50)
+    secret = junction / "secret.txt"
+    secret.write_bytes(b"s" * 50)
+    real_isjunction = getattr(_os.path, "isjunction", lambda p: False)
+    monkeypatch.setattr(
+        _os.path,
+        "isjunction",
+        lambda p: str(p) == str(junction) or real_isjunction(p),
+    )
+    scope = build_file_scope([str(root)], protected_roots=())
+    result = run_wipe(scope, protected_roots=())
+    assert secret.read_bytes() == b"s" * 50
+    assert not inner.exists()
+    link_outcomes = [o for o in result.outcomes if o.kind == "link"]
+    assert len(link_outcomes) == 1
+    assert link_outcomes[0].status in (LINK_REMOVED, LINK_LEFT)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="junctions are a Windows reparse point")
+def test_real_windows_junction_is_a_link_in_scope_and_execution(tmp_path):
+    # The gold pin, run on windows-latest: a real mklink /J
+    # junction inside a selected folder is recorded as a link,
+    # its target's file is never scoped or wiped, and the
+    # junction itself is removed as a link at execution.
+    import subprocess as _sp
+
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (root / "inner.txt").write_bytes(b"i" * 50)
+    secret = outside / "secret.txt"
+    secret.write_bytes(b"s" * 50)
+    junction = root / "linkdir"
+    created = _sp.run(
+        ["cmd", "/c", "mklink", "/J", str(junction), str(outside)],
+        capture_output=True,
+        text=True,
+    )
+    assert created.returncode == 0
+    scope = build_file_scope([str(root)], protected_roots=())
+    assert scope.total_files == 1
+    result = run_wipe(scope, protected_roots=())
+    assert secret.read_bytes() == b"s" * 50
+    outcomes = {o.path: o for o in result.outcomes}
+    assert outcomes[str(junction)].status == LINK_REMOVED

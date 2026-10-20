@@ -46,10 +46,34 @@ app; whole-drive behavior is otherwise unchanged.
   cleared session and raised AttributeError inside a Qt slot.
   The identity, acknowledge, and final-confirmation handlers
   are now clean no-ops with no live session.
-- Six regression tests pin these fixes, each proven to fail
-  on the pre-fix code for the stated reason. Full suite and
-  the windows-latest release pipeline (tests, frozen build,
-  staged-exe smoke) are the evidence for this release.
+- **Junctions are never followed (beerus.filewipe):** a
+  Windows probe on real hardware-class runners proved
+  `os.path.islink` reports a junction as NOT a link — the
+  scope walk descended into one and scoped a file living
+  outside the selected folder. Every link decision now goes
+  through one helper that also consults `os.path.isjunction`,
+  so a junction is recorded in the scope as a link (never
+  followed, target never touched), and a junction scope
+  entry can actually be removed at execution.
+- **Sampled verification aligns its reads (beerus.verify):**
+  the same probe proved raw-device reads on Windows refuse
+  unaligned offsets (Errno 22). Sampled region starts are
+  now aligned to a 512-byte sector boundary, so a sampled
+  verification on a raw Windows drive reads instead of
+  failing every read.
+- **Image-definition tests skip on Windows
+  (tests/test_image_definition.py):** they validate a
+  Debian live image — POSIX exec bits and symlinks are part
+  of its meaning, and a Windows checkout can represent
+  neither. v0.5.1's first release run was this file's first
+  Windows run (39 checkout-artifact failures, none about the
+  definition); the tests still run in full on Linux, where
+  images are defined and built.
+- Eleven regression tests pin these fixes, each proven to
+  fail on the pre-fix code for the stated reason. Full
+  suite and the windows-latest release pipeline (tests,
+  frozen build, staged-exe smoke) are the evidence for
+  this release.
 
 ## [0.5.0] — 2026-10-20
 
