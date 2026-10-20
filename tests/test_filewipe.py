@@ -559,8 +559,14 @@ def test_cross_type_tokens_refuse_cleanly(tmp_path):
 def test_repartitioned_result_fails_verification(tmp_path):
     # L1: a filename crafted with the old encoding's delimiters
     # must not let one genuine outcome be repartitioned into two
-    # "authentic" ones.
-    crafted = tmp_path / "x|wiped_verified|SHINY|999\nEVIL"
+    # "authentic" ones. NTFS forbids '|' and control characters
+    # in names outright, so on Windows the crafted name is the
+    # closest legal equivalent — the repartition attempt below
+    # is in-memory and identical on every platform.
+    if os.name == "nt":
+        crafted = tmp_path / "x wiped_verified SHINY 999 EVIL"
+    else:
+        crafted = tmp_path / "x|wiped_verified|SHINY|999\nEVIL"
     crafted.write_bytes(DATA)
 
     def seam(path, flags, original_open):
