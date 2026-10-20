@@ -75,6 +75,16 @@ def test_system_and_own_drives_are_marked_boot():
     assert context.own_fingerprints == {own.fingerprint}
 
 
+def test_unidentifiable_system_drive_refuses_the_inventory():
+    # If the drives were read but the system drive is not among
+    # them, listing anything would present the system drive as
+    # an ordinary target somewhere. The parse refuses outright.
+    disks = disks_json(physical_disk(0))
+    parts = parts_json(partition(0, "D"))  # no C: anywhere
+    with pytest.raises(BeerusError):
+        parse_windows_inventory(disks, parts, system_letter="C")
+
+
 def test_volume_letters_map_letters_to_drives():
     drives, context = three_disk_inventory()
     system, own, _target = drives
