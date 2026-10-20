@@ -59,6 +59,11 @@ class PortableDriveContext:
 
     system_fingerprints: frozenset = frozenset()
     own_fingerprints: frozenset = frozenset()
+    # (drive letter, drive fingerprint) for every mounted volume.
+    # The app uses it to know which physical drive a file or a
+    # free-space target lives on, which is what decides the SSD
+    # disclosure.
+    volume_letters: tuple = ()
 
     def block_reason(self, drive) -> str | None:
         """The portable refusal for *drive*, or None if none applies."""
@@ -159,6 +164,15 @@ def _drive_letter_of(path) -> str:
     return ""
 
 
+def _letter_of(value) -> str:
+    """A partition's drive letter as one uppercase character."""
+    if value is None:
+        return ""
+    if isinstance(value, int):
+        return chr(value).upper() if value else ""
+    return str(value).strip().upper()[:1]
+
+
 def _disk_numbers_for_letter(partitions, letter) -> set:
     """Disk numbers holding a partition with this drive letter."""
     if not letter:
@@ -203,6 +217,7 @@ def parse_windows_inventory(
     own_numbers = _disk_numbers_for_letter(partitions, app_letter)
 
     drives: list[Drive] = []
+    by_number: dict[int, Drive] = {}
     system_fingerprints = set()
     own_fingerprints = set()
     for entry in disks:
@@ -230,14 +245,26 @@ def parse_windows_inventory(
             is_boot=number in system_numbers or number in own_numbers,
         )
         drives.append(drive)
+        by_number[number] = drive
         if number in system_numbers:
             system_fingerprints.add(drive.fingerprint)
         if number in own_numbers:
             own_fingerprints.add(drive.fingerprint)
 
+    volume_letters = set()
+    for part in partitions:
+        letter = _letter_of(part.get("DriveLetter"))
+        try:
+            number = int(part.get("DiskNumber"))
+        except (TypeError, ValueError):
+            continue
+        if letter and number in by_number:
+            volume_letters.add((letter, by_number[number].fingerprint))
+
     context = PortableDriveContext(
         system_fingerprints=frozenset(system_fingerprints),
         own_fingerprints=frozenset(own_fingerprints),
+        volume_letters=tuple(sorted(volume_letters)),
     )
     return drives, context
 
