@@ -627,9 +627,10 @@ As built:
   mentioned surfacing the file/folder and free-space modes in
   the boot UI. The shipped boot UI presents the boot line's
   whole-drive flow — the flow Phase 3 built and the portable's
-  gate presentation mirrors. The file/free-space engines
-  remain available from `beerus.filewipe` with no second
-  implementation, for a future boot-UI extension.
+  gate presentation mirrors. **Decision 2026-10-21 (B-10) —
+  CLOSED; disposition amended to "decided: portable only."**
+  Reason: a destruction tool's boot form does one thing with
+  total clarity; file wiping's shipped home is the portable.
 - **Tests:** 43 new in the build (boot-UI theme, boot-UI GUI,
   boot-UI session + launcher, image-definition), with the
   audit and re-audit rounds adding their regression batteries
