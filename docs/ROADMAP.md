@@ -679,7 +679,11 @@ As built:
 - Batch mode for multi-drive decommissioning benches (one
   certificate per drive, one job report per bench run) — only
   after the single-drive flow is field-proven.
-- A certificate archive format for Sentinel's job records.
+- A certificate archive format for Sentinel's job records —
+  **CLOSED 2026-10-21 (B-11).** Reason: certificates are
+  HMAC-authentic PASS documents as issued; a second signing
+  story doubles the trust surface for a format no client has
+  asked for.
 
 ## Standing rules
 
