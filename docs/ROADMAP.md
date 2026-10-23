@@ -704,4 +704,8 @@ As built:
   errors, ever.
 - **Audit everything.** Build → audit → fix → re-audit, per
   Sentinel's standing rule across the fleet.
-- Brand: green and black. No purple anywhere.
+- Brand: Beerus's own palette — deep violet-black, Beerus
+  violet, and destruction gold (the owner's namesake exception
+  for this tool, 2026-10-20; Beerus is the one exception to the
+  fleet's no-purple rule). Danger is the fleet red every
+  Sentinel tool shares.

@@ -17,9 +17,13 @@ In the stories, Beerus is the God of Destruction — the one being
 whose job is endings, done completely and without reversal.
 
 BEERUS.EXE is Sentinel Safeguard's drive-destruction tool. This
-repository is flashed to a USB drive to create **Live Boot**: a
-bootable sanitization key. Plug it into any machine, boot
-from it, pick a drive, and the data on that drive is destroyed to
+repository defines **Live Boot**: a bootable sanitization key,
+created by flashing the image defined in this repository to a
+USB drive. **That image has not been built yet** — building it
+is Phase 5 hardware work (see Status, below), and Beerus
+Portable is the shipped, downloadable form today. Once a key
+is built, you plug it into any machine, boot from it, pick a
+drive, and the data on that drive is destroyed to
 the **NIST 800-88** media sanitization standard — the standard
 governments and enterprises use when "deleted" has to actually
 mean gone.
@@ -37,9 +41,11 @@ engine, the same consent gates, the same verification, the same
 documents. No forked wipe logic exists anywhere.
 
 - **Live Boot (bootable live USB)** — the original
-  form. Boot any machine from the key; the machine's own system
-  never starts. This is the form for destroying the drive a
-  machine runs from, and for bare-metal decommissioning work.
+  form (its image is still unbuilt — Phase 5 hardware work; see
+  Status, below). Boot any machine from the key; the machine's
+  own system never starts. This is the form for destroying the
+  drive a machine runs from, and for bare-metal decommissioning
+  work.
 - **Beerus Portable (the Windows app)** — a no-install Windows
   app, carried on a stick and run on an already-booted machine:
   download `BeerusPortable.zip` from the release, unzip it, run
@@ -97,6 +103,10 @@ own HMAC-bound consent tokens authorize — the confirmed files,
 and filler in one volume's free space.
 
 ## How it works
+
+This is the Live Boot flow, once a key exists — the image is
+still unbuilt (Phase 5), so no key can be flashed today;
+Beerus Portable is the shipped form (see Status).
 
 1. **Flash** — the image defined in this repo (built per
    [docs/IMAGE-BUILD.md](docs/IMAGE-BUILD.md)) is written to a

@@ -102,7 +102,9 @@ WHERE THINGS ARE WRITTEN (honest list)
 
 THE OTHER FORM
 --------------
-Live Boot - this same repository as a bootable USB
-key - remains the tool for machines that are off, unbootable,
-or being decommissioned whole. One engine, two forms; the
+Live Boot - the bootable USB form defined in this same
+repository - is the tool designed for machines that are off,
+unbootable, or being decommissioned whole. Its image has not
+been built yet (Phase 5 hardware work), so Beerus Portable is
+the shipped form today. One engine, two forms; the
 paperwork standard is the same on both.
