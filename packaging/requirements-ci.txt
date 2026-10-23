@@ -10,6 +10,11 @@
 # PowerShell's storage cmdlets over a subprocess seam), so the
 # pywin32 pins Charon needs are not here — the list is what this
 # build actually uses, nothing more.
+# 2026-10-23 (Fleet Sweep #4): setuptools is pinned at 83.0.0, not
+# the fleet's earlier 80.10.2 — 80.10.2 carries PYSEC-2026-3447
+# (an sdist MANIFEST.in glob flaw). The flaw is build-time only,
+# but a pinned build tool with a known vulnerability does not
+# stay pinned.
 PySide6==6.12.0
 pyinstaller==6.22.3
 pyinstaller-hooks-contrib==2026.8
@@ -17,5 +22,5 @@ pefile==2024.8.26
 altgraph==0.17.5
 pywin32-ctypes==0.2.3
 packaging==25.0
-setuptools==80.10.2
+setuptools==83.0.0
 pytest==9.1.1
