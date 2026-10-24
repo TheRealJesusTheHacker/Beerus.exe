@@ -48,7 +48,7 @@ ROOT = Path(SPECPATH).parent
 
 # Windows version resource for the exe: File Explorer, the task
 # manager, and SmartScreen all read THIS — an exe with no version
-# info looks anonymous. Version 0.6.2 matches beerus.__version__
+# info looks anonymous. Version 0.6.3 matches beerus.__version__
 # (the release workflow's tag check keeps them from drifting).
 # Version resources exist only on Windows; the guard keeps this
 # spec runnable for off-Windows smoke builds.
@@ -79,7 +79,7 @@ if sys.platform.startswith("win"):
                                 "BEERUS.EXE - Beerus Portable: "
                                 "secure drive destruction",
                             ),
-                            StringStruct("FileVersion", "0.6.2.0"),
+                            StringStruct("FileVersion", "0.6.3.0"),
                             StringStruct("InternalName", "Beerus"),
                             StringStruct(
                                 "LegalCopyright",
@@ -91,7 +91,7 @@ if sys.platform.startswith("win"):
                             StringStruct(
                                 "ProductName", "BEERUS.EXE"
                             ),
-                            StringStruct("ProductVersion", "0.6.2"),
+                            StringStruct("ProductVersion", "0.6.3"),
                         ],
                     )
                 ]

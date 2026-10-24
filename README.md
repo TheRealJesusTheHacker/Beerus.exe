@@ -2,7 +2,7 @@
 
 **Sentinel Safeguard LLC — secure drive destruction, on a key.**
 
-[![Version](https://img.shields.io/badge/version-v0.6.2-a478f7?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
+[![Version](https://img.shields.io/badge/version-v0.6.3-a478f7?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
 [![Platform](https://img.shields.io/badge/platform-Windows%20app-0078D6?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe)
 [![Python](https://img.shields.io/badge/Python-3-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-b03a2e?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/LICENSE)
@@ -212,6 +212,20 @@ standard: plain language, no corners cut, nothing promised that
 isn't delivered.
 
 ## Status
+
+**v0.6.3 — Fleet Sweep #5 fixes.** The portable window's
+progress bar now works on real-sized targets: it previously
+fed raw byte counts into a widget whose range is a C int, so
+any drive, file, or free-space target over ~2 GiB overflowed
+it and the bar never left its busy spinner (the wipe itself
+was never affected — progress is reporting, and the run's
+log always carried the real counters). Two further fixes
+from the same sweep: free-space filler writes that make no
+progress can no longer spin forever, and wipe reports are
+now claimed with an exclusive create so an existing report
+can never be silently overwritten. No gate, engine, method,
+or wording change; the executor still ships disarmed, and
+the bootable image is still unbuilt.
 
 **v0.6.2 — Portable hardening.** The portable window's run
 thread is now owned by the application and its end is

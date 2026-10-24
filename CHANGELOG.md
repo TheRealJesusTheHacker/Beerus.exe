@@ -2,6 +2,57 @@
 
 All notable changes to BEERUS.EXE are recorded here.
 
+## [0.6.3] — 2026-10-24
+
+Fleet Sweep #5 (bug hunt + performance): three fixes, each
+with a regression test. No gate, engine, method, palette,
+or wording change; the executor still ships disarmed and
+the Live Boot image is still unbuilt.
+
+- **The portable progress bar never worked on a real-sized
+  target.** `_on_progress` fed the progress events' raw byte
+  counters into `QProgressBar.setRange`/`setValue`, whose
+  range is a C `int` (max 2,147,483,647). Any target over
+  ~2 GiB — every real drive, most large files, any volume's
+  free space — raised `OverflowError` in the slot (proven
+  against the pinned PySide6 6.12.0 at 500 GiB and 8 TiB),
+  so the bar stayed on its busy spinner for the whole wipe
+  while the suite's 8 MiB fake drives never reached the
+  limit. The bar now renders the event's own percentage —
+  derived from the real counters by `beerus.progress`, so
+  nothing is invented — in tenth-percent steps over
+  0..1000, the same treatment the boot UI gives the same
+  events. The running log still carries the real counters
+  in words. The wipe itself was never affected: this was
+  reporting only.
+- **Free-space filler writes could spin forever.** Both
+  `os.write` loops in `FreeSpaceEngine._fill_pass` advanced
+  `view = view[n:]` with no guard on `n`; a write returning
+  0 looped on the same buffer indefinitely, with the
+  volume full of filler. The loops now raise `OSError` on
+  a no-progress write — the same guard the drive executor's
+  `run_overwrite` already carried — which the create pass
+  treats as the end of that filler's growth (reported as a
+  shortfall) and a rewrite pass reports as a run stopped
+  early. Never a hang, never a success claim.
+- **Wipe reports could be silently overwritten in a
+  race.** `write_file_report` promised "never overwritten"
+  but claimed its filename with an exists-check followed by
+  a plain write; a file landing on the name in between was
+  replaced. The name is now claimed with an exclusive
+  create — the certificate writer's discipline — with the
+  same sequential naming (base, then `-2`, `-3`, ...).
+
+Performance, measured and deliberately unchanged: the
+overwrite engine writes at the disk's pace (~101 MB/s on
+the sweep VM for 64 MiB × 4 passes, fsync-bound, not
+allocation-bound — a chunk pattern costs ~15 µs/MiB), and
+the file verification's allocate-and-compare check
+(~34 µs/MiB) measured faster than the allocation-free
+alternative (~207 µs/MiB), so both stay as they are.
+Dependency audit over the pinned CI set: no known
+vulnerabilities (pip-audit, 2026-10-24).
+
 ## [0.6.2] — 2026-10-20
 
 Portable hardening: the boot UI's thread-lifetime fix, mirrored.

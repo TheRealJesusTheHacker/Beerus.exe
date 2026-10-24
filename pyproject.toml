@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "beerus"
-version = "0.6.2"
+version = "0.6.3"
 description = "BEERUS.EXE — Sentinel Safeguard LLC secure drive destruction (Live Boot)."
 readme = "README.md"
 requires-python = ">=3.11"
