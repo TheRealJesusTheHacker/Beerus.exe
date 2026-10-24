@@ -891,3 +891,72 @@ def test_real_windows_junction_is_a_link_in_scope_and_execution(tmp_path):
     assert secret.read_bytes() == b"s" * 50
     outcomes = {o.path: o for o in result.outcomes}
     assert outcomes[str(junction)].status == LINK_REMOVED
+
+
+# ------------------------------------------------------- sweep-5 regressions
+# Findings from Fleet Sweep #5 (2026-10-24).
+
+
+def test_free_space_zero_progress_write_never_spins(tmp_path, monkeypatch):
+    # Sweep #5: both write loops in FreeSpaceEngine._fill_pass
+    # advanced `view = view[n:]` with no guard on n — an os.write
+    # that returns 0 (a full/odd volume can do exactly that)
+    # looped forever on the same buffer and the wipe hung with
+    # the volume full of filler. The drive executor's
+    # run_overwrite already guarded this case; the filler loops
+    # now raise OSError on a no-progress write, which the create
+    # pass treats as the end of that filler's growth and the run
+    # reports as a shortfall — never a hang, never a success.
+    real_write = os.write
+
+    def zero_write(fd, data):
+        if fd in (1, 2):
+            return real_write(fd, data)
+        return 0
+
+    monkeypatch.setattr(os, "write", zero_write)
+    scope = build_free_space_scope(
+        tmp_path, free_bytes_probe=lambda p: 24 * MIB, reserve_bytes=MIB
+    )
+    authority, token = confirm(scope)
+    engine = FreeSpaceEngine(
+        authority, free_bytes_probe=lambda p: 24 * MIB, chunk_bytes=MIB
+    )
+    result = engine.execute(scope, token)
+    assert result.ok is False
+    assert result.bytes_filled == 0
+    assert verify_free_space_result_authentic(result)
+
+
+def test_write_file_report_never_overwrites_an_existing_file(
+    tmp_path, monkeypatch
+):
+    # Sweep #5: write_file_report claimed "reports are never
+    # overwritten" but claimed its name with an exists-check
+    # followed by a plain write_text — a file landing on the
+    # name between the check and the write was silently
+    # replaced. The name is now claimed with an exclusive
+    # create (the certificate writer's discipline). Simulate
+    # the race deterministically: exists() always answers "no"
+    # (the stale check the old code trusted) while the base
+    # name is already taken by a sentinel file.
+    result = run_wipe(build_file_scope([write(tmp_path / "a.txt")]))
+    report = build_file_report(result, "Skyler Test", ssd=False)
+    out_dir = tmp_path / "reports"
+    out_dir.mkdir()
+    from datetime import datetime as _dt
+
+    day = _dt.now().strftime("%Y%m%d")
+    sentinel = (
+        out_dir / f"beerus-{report.kind}-{day}-{report.record_id}.html"
+    )
+    sentinel.write_text("SENTINEL — an earlier record", encoding="utf-8")
+    monkeypatch.setattr(
+        "pathlib.Path.exists", lambda self: False
+    )
+    path = write_file_report(report, out_dir)
+    assert path != sentinel
+    assert sentinel.read_text(encoding="utf-8") == (
+        "SENTINEL — an earlier record"
+    )
+    assert "File Wipe Report" in path.read_text(encoding="utf-8")

@@ -1506,6 +1506,17 @@ class FreeSpaceEngine:
                         view = memoryview(chunk)
                         while view:
                             n = os.write(fd, view)
+                            if n <= 0:
+                                # A write that makes no progress
+                                # must never spin forever — the
+                                # drive executor's run_overwrite
+                                # guards the same case. Raising
+                                # lands in the OSError handler
+                                # below, which ends this filler's
+                                # growth honestly.
+                                raise OSError(
+                                    "Writing the filler made no progress."
+                                )
                             view = view[n:]
                         written_here += length
                         written_total += length
@@ -1555,6 +1566,15 @@ class FreeSpaceEngine:
                     view = memoryview(chunk)
                     while view:
                         n = os.write(fd, view)
+                        if n <= 0:
+                            # No-progress write: never spin —
+                            # see the create pass above. The
+                            # OSError propagates to the run's
+                            # handler, which reports the wipe
+                            # stopped early.
+                            raise OSError(
+                                "Writing the filler made no progress."
+                            )
                         view = view[n:]
                     done += length
                 os.fsync(fd)
@@ -1786,17 +1806,29 @@ def render_file_report_html(report: FileReport) -> str:
 
 
 def write_file_report(report: FileReport, directory) -> Path:
-    """Write a report HTML file; reports are never overwritten."""
+    """Write a report HTML file; reports are never overwritten.
+
+    The name is claimed with an exclusive create, not an
+    exists-check followed by a plain write: between the check
+    and the write another report (or anything else) could land
+    on the same name, and the plain write would silently
+    replace it — the docstring's promise would hold only when
+    nothing raced. This is the same exclusive-create discipline
+    beerus.certificate.write_document uses for certificates.
+    """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     day = datetime.now().strftime("%Y%m%d")
-    base = directory / f"beerus-{report.kind}-{day}-{report.record_id}.html"
-    candidate = base
+    html_text = render_file_report_html(report)
+    candidate = directory / f"beerus-{report.kind}-{day}-{report.record_id}.html"
     suffix = 2
-    while candidate.exists():
-        candidate = directory / (
-            f"beerus-{report.kind}-{day}-{report.record_id}-{suffix}.html"
-        )
-        suffix += 1
-    candidate.write_text(render_file_report_html(report), encoding="utf-8")
-    return candidate
+    while True:
+        try:
+            with candidate.open("x", encoding="utf-8") as fh:
+                fh.write(html_text)
+            return candidate
+        except FileExistsError:
+            candidate = directory / (
+                f"beerus-{report.kind}-{day}-{report.record_id}-{suffix}.html"
+            )
+            suffix += 1

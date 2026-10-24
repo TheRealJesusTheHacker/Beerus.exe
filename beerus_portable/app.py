@@ -1079,9 +1079,22 @@ class MainWindow(QMainWindow):
     def _on_progress(self, event):
         if event.message:
             self.log_view.appendPlainText(event.message)
-        if event.bytes_total and event.bytes_total > 0:
-            self.progress_bar.setRange(0, int(event.bytes_total))
-            self.progress_bar.setValue(int(event.bytes_done))
+        # The bar is driven by the event's percentage, never by
+        # the raw byte counters: a QProgressBar range is a C int,
+        # so a real drive's size in bytes (hundreds of billions)
+        # overflows it and the update fails — the bar stayed on
+        # its busy spinner for every real-sized target while the
+        # suite's small fake drives never reached the limit. The
+        # percentage is derived from the real counters by the
+        # event itself (beerus.progress), so nothing is invented:
+        # the bar renders in tenth-percent steps over 0..1000,
+        # exactly the precision ProgressEvent.percent carries.
+        # The boot UI renders the same events the same way. The
+        # log above still carries the real counters in words.
+        percent = event.percent
+        if percent is not None:
+            self.progress_bar.setRange(0, 1000)
+            self.progress_bar.setValue(round(percent * 10))
         else:
             self.progress_bar.setRange(0, 0)
 

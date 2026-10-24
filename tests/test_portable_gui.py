@@ -640,3 +640,34 @@ def test_file_mode_run_thread_uses_the_same_ownership(
     wait_for_page(window, window.page_result, timeout_ms=180000)
     wait_for_retirement(window)
     assert not target.exists()
+
+
+def test_progress_bar_survives_real_drive_sizes(qapp, device_file, documents_dir):
+    # Sweep #5: _on_progress fed the event's raw byte counters
+    # into QProgressBar.setRange/setValue, whose range is a C
+    # int (max 2,147,483,647). Every real target — a 500 GB
+    # drive, a 3 GB file, a volume's free space — overflows
+    # that, the Qt update fails, and the bar never left its
+    # busy spinner on real hardware; the suite's 8 MiB fakes
+    # never reached the limit. The bar now renders the event's
+    # own percentage (derived from the real counters by
+    # beerus.progress) in tenth-percent steps over 0..1000,
+    # the same treatment the boot UI gives the same events.
+    from beerus.progress import EventKind, ProgressEvent
+
+    window = verified_window(device_file, documents_dir)
+    huge_total = 8 * 1024 * 1024 * 1024 * 1024  # 8 TiB
+    window._on_progress(
+        ProgressEvent(
+            EventKind.PROGRESS,
+            "Pass 1 of 4",
+            "step",
+            huge_total // 2,
+            huge_total,
+        )
+    )
+    assert window.progress_bar.maximum() == 1000
+    assert window.progress_bar.value() == 500
+    # An event with no real total still means a busy bar.
+    window._on_progress(ProgressEvent(EventKind.STEP_STARTED, "Starting"))
+    assert window.progress_bar.maximum() == 0
