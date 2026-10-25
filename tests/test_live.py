@@ -629,7 +629,7 @@ def test_importing_the_package_arms_nothing(monkeypatch):
     monkeypatch.delenv(RealExecutor.ARM_ENV_VAR, raising=False)
     import os
 
-    assert beerus.__version__ == "0.6.3"
+    assert beerus.__version__ == "0.6.4"
     assert os.environ.get(RealExecutor.ARM_ENV_VAR) is None
 
 

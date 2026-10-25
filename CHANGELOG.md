@@ -2,6 +2,32 @@
 
 All notable changes to BEERUS.EXE are recorded here.
 
+## [0.6.4] — 2026-10-25
+
+Supply-chain patch release. No gate, engine, method, palette,
+or wording change; the executor still ships disarmed and the
+Live Boot image is still unbuilt.
+
+- **Release builds now install from a hash-locked dependency
+  set.** The release workflow installs
+  `packaging/requirements-ci.lock.txt` with
+  `pip install --require-hashes`: every package — direct pins
+  and the full transitive tree — is verified against a
+  committed SHA-256 lock, and the install fails loudly on any
+  mismatch. A version bump is not landed until its hashes are
+  locked.
+- **CI setuptools pin updated to 84.1.0**, which fixes
+  GHSA-xmj3-9gf7-h52w (a Windows path escape in older
+  setuptools); the pin landed with Fleet Sweep #5's close-out.
+- **Functional bug hunt (this release train): no defects
+  found.** The full suite passes (767 passed, 1 skipped), the
+  Live Boot console refuses cleanly off-image (exit 2, plain
+  message), and the portable window was built offscreen and
+  exercised: all three modes (whole drive, files, free space)
+  switch, the start controls stay disabled until a target is
+  chosen, drive reading fails soft on a machine it cannot
+  read, and the executor ships disarmed.
+
 ## [0.6.3] — 2026-10-24
 
 Fleet Sweep #5 (bug hunt + performance): three fixes, each

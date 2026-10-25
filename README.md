@@ -2,7 +2,7 @@
 
 **Sentinel Safeguard LLC — secure drive destruction, on a key.**
 
-[![Version](https://img.shields.io/badge/version-v0.6.3-a478f7?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
+[![Version](https://img.shields.io/badge/version-v0.6.4-a478f7?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/beerus/__init__.py)
 [![Platform](https://img.shields.io/badge/platform-Windows%20app-0078D6?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe)
 [![Python](https://img.shields.io/badge/Python-3-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-b03a2e?style=flat-square)](https://github.com/TheRealJesusTheHacker/Beerus.exe/blob/main/LICENSE)
@@ -212,6 +212,19 @@ standard: plain language, no corners cut, nothing promised that
 isn't delivered.
 
 ## Status
+
+**v0.6.4 — hash-locked release builds.** The release
+workflow now installs its dependencies from a committed
+SHA-256 lock with `--require-hashes`, so every package the
+release is built with is verified before it is used, and a
+mismatch fails the build loudly. The CI setuptools pin is
+84.1.0 (the GHSA-xmj3-9gf7-h52w fix). A functional bug hunt
+over the core workflows found no defects: the suite stands
+at 767 passed, 1 skipped, the Live Boot console refuses
+cleanly off-image, and the portable window's three modes
+were exercised offscreen. No gate, engine, method, or
+wording change; the executor still ships disarmed, and the
+bootable image is still unbuilt.
 
 **v0.6.3 — Fleet Sweep #5 fixes.** The portable window's
 progress bar now works on real-sized targets: it previously
