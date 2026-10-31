@@ -35,6 +35,7 @@ _REQUIRED_FILES = (
     "README.md",
     "config/package-lists/beerus.list.chroot",
     "config/includes.chroot/etc/hostname",
+    "config/includes.chroot/etc/sysctl.d/99-beerus.conf",
     "config/includes.chroot/etc/systemd/system/beerus-live.service",
     "config/includes.chroot/usr/local/bin/beerus-live",
     "config/includes.chroot/usr/local/bin/beerus-ui",
